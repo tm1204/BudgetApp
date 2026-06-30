@@ -1,4 +1,4 @@
-const CACHE_NAME = 'budget-app-v3.1';
+const CACHE_NAME = 'budget-app-v3.2.0';
 const CATEGORIES = ['Income', 'Tithes', 'Home', 'Vehicles', 'Debits', 'Food', 'Fuel', 'Entertainment'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -7,7 +7,6 @@ const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i);
 let currentYear = CURRENT_YEAR;
 let currentMonth = new Date().getMonth();
 
-// Register service worker
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
@@ -27,72 +26,70 @@ function storageKey(year, month) {
   return `budget_${year}_${month}`;
 }
 
-function isCurrentOrFuture(year, month) {
+function isPastMonth(year, month) {
   const now = new Date();
-  const nowYear = now.getFullYear();
-  const nowMonth = now.getMonth();
-  return year > nowYear || (year === nowYear && month >= nowMonth);
+  return year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth());
 }
 
-function loadData(year, month) {
-  const raw = localStorage.getItem(storageKey(year, month));
-  if (raw) {
-    const parsed = JSON.parse(raw);
-    // Strip internal flag before returning
-    return parsed.map(cat => {
-      const { __inherited, ...rest } = cat;
-      return rest;
-    });
-  }
-
-  // No data yet — inherit from previous month if available
-  const sourceData = getPropagationSource(year, month);
-  if (sourceData) {
-    return sourceData.map(cat => ({
-      ...cat,
-      rows: cat.rows.map(r => ({ expense: r.expense, cost: r.cost, paid: false }))
-    }));
-  }
-
-  // Blank slate
-  return CATEGORIES.map(name => ({ name, rows: [{ expense: '', cost: '', paid: false }] }));
+function stripInherited(data) {
+  return data.map(cat => {
+    const { __inherited, ...rest } = cat;
+    return rest;
+  });
 }
 
-function getPropagationSource(year, month) {
-  // Walk backwards to find the nearest month with real data
-  let m = month - 1;
+// Walk backwards up to 24 months to find nearest saved data
+function findNearestSource(year, month) {
   let y = year;
-  while (y > CURRENT_YEAR - 1) {
+  let m = month - 1;
+
+  for (let i = 0; i < 24; i++) {
     if (m < 0) { m = 11; y--; }
+    if (y < 2020) break;
+
     const raw = localStorage.getItem(storageKey(y, m));
     if (raw) {
-      const parsed = JSON.parse(raw);
-      // Return data stripped of inherited flag
-      return parsed.map(cat => {
-        const { __inherited, ...rest } = cat;
-        return rest;
-      });
+      return stripInherited(JSON.parse(raw));
     }
     m--;
   }
   return null;
 }
 
+function loadData(year, month) {
+  const raw = localStorage.getItem(storageKey(year, month));
+
+  if (raw) {
+    return stripInherited(JSON.parse(raw));
+  }
+
+  // Nothing saved — inherit from nearest past month
+  const source = findNearestSource(year, month);
+  if (source) {
+    return source.map(cat => ({
+      ...cat,
+      rows: cat.rows.map(r => ({ expense: r.expense, cost: r.cost, paid: false }))
+    }));
+  }
+
+  // Truly blank slate
+  return CATEGORIES.map(name => ({ name, rows: [{ expense: '', cost: '', paid: false }] }));
+}
+
 function saveData(year, month, data) {
-  // Always save the edited month as-is (no inherited flag)
+  // Save current month — no inherited flag
   localStorage.setItem(storageKey(year, month), JSON.stringify(data));
 
-  // Only propagate forward if this is the current month or a future month
-  if (!isCurrentOrFuture(year, month)) return;
+  // Only propagate forward from current or future months
+  if (isPastMonth(year, month)) return;
 
-  // Propagate to all future months that are still "inherited" (not manually saved)
-  const totalMonths = 12;
-  for (let m = month + 1; m < totalMonths; m++) {
+  // Propagate to rest of same year
+  for (let m = month + 1; m < 12; m++) {
     propagateToMonth(year, m, data);
   }
-  // Also propagate into future years
+  // Propagate into future years
   for (let y = year + 1; y <= CURRENT_YEAR + 4; y++) {
-    for (let m = 0; m < totalMonths; m++) {
+    for (let m = 0; m < 12; m++) {
       propagateToMonth(y, m, data);
     }
   }
@@ -102,7 +99,7 @@ function propagateToMonth(year, month, sourceData) {
   const key = storageKey(year, month);
   const existing = localStorage.getItem(key);
 
-  // Only overwrite if the month hasn't been manually edited
+  // Only overwrite if not manually edited
   if (!existing || JSON.parse(existing).__inherited) {
     const inherited = sourceData.map(cat => ({
       ...cat,
