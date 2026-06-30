@@ -5,21 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Budget" />
-  <link rel="apple-touch-icon" href="Icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-title" content="BudgetApp" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="style.css" />
-  <title>Budget App</title>
+  <title>BudgetApp</title>
 </head>
 <body>
   <header>
+    <div class="header-left">
+      <img src="icons/icon-192.png" class="header-icon" alt="BudgetApp" />
+      <span class="header-title">BudgetApp</span>
+    </div>
     <select id="yearSelect"></select>
   </header>
 
   <div class="month-tabs" id="monthTabs"></div>
 
   <main id="budgetContent"></main>
+
   <div class="action-bar" id="actionBar"></div>
+
+  <!-- Bottom sheet overlay -->
+  <div class="sheet-overlay" id="sheetOverlay" onclick="closeSheet()"></div>
+  <div class="bottom-sheet" id="bottomSheet"></div>
+
   <script src="app.js"></script>
 </body>
 </html>
