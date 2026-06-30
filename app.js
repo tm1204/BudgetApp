@@ -1,4 +1,4 @@
-const CACHE_NAME = 'budget-app-v4.0';
+const CACHE_NAME = 'budget-app-v4.2';
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i);
@@ -65,10 +65,7 @@ function isPastMonth(year, month) {
   return year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth());
 }
 
-function getNextColour() {
-  // Find the highest palette index currently in use across all categories
-  const raw = localStorage.getItem(storageKey(currentYear, currentMonth));
-  const data = raw ? JSON.parse(raw) : DEFAULT_CATEGORIES;
+function getNextColour(data) {
   const usedColours = data.map(c => c.colour);
   for (let i = 0; i < PALETTE.length; i++) {
     if (!usedColours.includes(PALETTE[i])) return PALETTE[i];
@@ -79,7 +76,15 @@ function getNextColour() {
 // ── Data ────────────────────────────────────────────────────────────────────
 function loadData(year, month) {
   const raw = localStorage.getItem(storageKey(year, month));
-  if (raw) return JSON.parse(raw);
+  if (raw) {
+    const parsed = JSON.parse(raw);
+    // Enforce isIncome on index 0 — fixes data saved before v4.0
+    return parsed.map((cat, idx) => ({
+      ...cat,
+      isIncome: idx === 0,
+      colour: cat.colour || (idx === 0 ? INCOME_COLOUR : PALETTE[idx % PALETTE.length])
+    }));
+  }
   return DEFAULT_CATEGORIES.map(c => ({ ...c, rows: c.rows.map(r => ({ ...r })) }));
 }
 
@@ -137,13 +142,12 @@ function closeSheet() {
 }
 
 function openCategoryMenu(catIdx) {
-  const data   = loadData(currentYear, currentMonth);
-  const cat    = data[catIdx];
-  const isInc  = cat.isIncome;
-  const isFirst = catIdx === 0;
-  const isLast  = catIdx === data.length - 1;
-
-  const disabledCls = (flag) => flag ? 'disabled' : '';
+  const data    = loadData(currentYear, currentMonth);
+  const cat     = data[catIdx];
+  const isInc   = cat.isIncome;
+  // Move Up disabled if income, or if already at index 1 (directly below income)
+  const disableUp   = isInc || catIdx <= 1;
+  const disableDown = isInc || catIdx === data.length - 1;
 
   const html = `
     <div class="sheet-handle"></div>
@@ -158,13 +162,13 @@ function openCategoryMenu(catIdx) {
       <span class="sheet-option-icon">🎨</span> Change Colour
     </button>
 
-    <button class="sheet-option ${isFirst ? 'disabled' : ''}"
-      onclick="${isFirst ? '' : `sheetMove(${catIdx},-1)`}">
+    <button class="sheet-option ${disableUp ? 'disabled' : ''}"
+      onclick="${disableUp ? '' : `sheetMove(${catIdx},-1)`}">
       <span class="sheet-option-icon">▲</span> Move Up
     </button>
 
-    <button class="sheet-option ${isLast ? 'disabled' : ''}"
-      onclick="${isLast ? '' : `sheetMove(${catIdx},1)`}">
+    <button class="sheet-option ${disableDown ? 'disabled' : ''}"
+      onclick="${disableDown ? '' : `sheetMove(${catIdx},1)`}">
       <span class="sheet-option-icon">▼</span> Move Down
     </button>
 
@@ -218,12 +222,23 @@ function applyColour(catIdx, colour) {
 }
 
 function sheetMove(catIdx, direction) {
-  const data    = loadData(currentYear, currentMonth);
-  const newIdx  = catIdx + direction;
+  const data   = loadData(currentYear, currentMonth);
+  const newIdx = catIdx + direction;
+
+  // Never move out of bounds
   if (newIdx < 0 || newIdx >= data.length) { closeSheet(); return; }
-  // Income must always stay at index 0
-  if (newIdx === 0 && !data[catIdx].isIncome) { closeSheet(); return; }
+
+  // Income never moves
+  if (data[catIdx].isIncome) { closeSheet(); return; }
+
+  // No category can move into index 0 — Income's permanent position
+  if (newIdx === 0) { closeSheet(); return; }
+
   [data[catIdx], data[newIdx]] = [data[newIdx], data[catIdx]];
+
+  // Re-enforce isIncome by index as a final safety net
+  data.forEach((cat, idx) => { cat.isIncome = idx === 0; });
+
   saveData(currentYear, currentMonth, data);
   closeSheet();
   renderBudget();
@@ -243,7 +258,7 @@ function addCategory() {
   const name = prompt('New category name:');
   if (!name || !name.trim()) return;
   const data   = loadData(currentYear, currentMonth);
-  const colour = getNextColour();
+  const colour = getNextColour(data);
   data.push({ name: name.trim(), colour, isIncome: false, rows: [{ expense: '', cost: '', paid: false }] });
   saveData(currentYear, currentMonth, data);
   renderBudget();
@@ -317,7 +332,7 @@ function fmt(val) {
 
 function calcSummary(data) {
   let income = 0, totalExpenses = 0, paidExpenses = 0;
-  data.forEach((cat) => {
+  data.forEach(cat => {
     cat.rows.forEach(r => {
       const val = parseFloat(r.cost) || 0;
       if (cat.isIncome) {
@@ -468,10 +483,7 @@ function renderBudget() {
     html += `<button class="add-btn" onclick="addRow(${catIdx})">+ Add row</button></div>`;
   });
 
-  // Pie chart
   html += renderChart(data);
-
-  // Add category button
   html += `<button class="add-category-btn" onclick="addCategory()">+ Add Category</button>`;
 
   document.getElementById('budgetContent').innerHTML = html;
