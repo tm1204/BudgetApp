@@ -1,12 +1,12 @@
-const CACHE_NAME = 'budget-app-v3';
+const CACHE_NAME = 'budget-app-v3.1.0';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
   './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
+  './Icons/icon-192.png',
+  './Icons/icon-512.png'
 ];
 
 // Install — cache all assets
