@@ -1,4 +1,4 @@
-const CACHE_NAME = 'budget-app-v3.2.0';
+const CACHE_NAME = 'budget-app-v3.4';
 const CATEGORIES = ['Income', 'Tithes', 'Home', 'Vehicles', 'Debits', 'Food', 'Fuel', 'Entertainment'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -26,88 +26,73 @@ function storageKey(year, month) {
   return `budget_${year}_${month}`;
 }
 
-function isPastMonth(year, month) {
-  const now = new Date();
-  return year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth());
+function protectionKey(year, month) {
+  return `protected_${year}_${month}`;
 }
 
-function stripInherited(data) {
-  return data.map(cat => {
-    const { __inherited, ...rest } = cat;
-    return rest;
-  });
+function isProtected(year, month) {
+  return localStorage.getItem(protectionKey(year, month)) === 'true';
 }
 
-// Walk backwards up to 24 months to find nearest saved data
-function findNearestSource(year, month) {
-  let y = year;
-  let m = month - 1;
+function setProtected(year, month, value) {
+  localStorage.setItem(protectionKey(year, month), value ? 'true' : 'false');
+}
 
-  for (let i = 0; i < 24; i++) {
-    if (m < 0) { m = 11; y--; }
-    if (y < 2020) break;
-
-    const raw = localStorage.getItem(storageKey(y, m));
-    if (raw) {
-      return stripInherited(JSON.parse(raw));
-    }
-    m--;
-  }
-  return null;
+function toggleProtection() {
+  const current = isProtected(currentYear, currentMonth);
+  setProtected(currentYear, currentMonth, !current);
+  renderMonthTabs();
+  renderActionBar();
 }
 
 function loadData(year, month) {
   const raw = localStorage.getItem(storageKey(year, month));
-
-  if (raw) {
-    return stripInherited(JSON.parse(raw));
-  }
-
-  // Nothing saved — inherit from nearest past month
-  const source = findNearestSource(year, month);
-  if (source) {
-    return source.map(cat => ({
-      ...cat,
-      rows: cat.rows.map(r => ({ expense: r.expense, cost: r.cost, paid: false }))
-    }));
-  }
-
-  // Truly blank slate
+  if (raw) return JSON.parse(raw);
   return CATEGORIES.map(name => ({ name, rows: [{ expense: '', cost: '', paid: false }] }));
 }
 
 function saveData(year, month, data) {
-  // Save current month — no inherited flag
   localStorage.setItem(storageKey(year, month), JSON.stringify(data));
-
-  // Only propagate forward from current or future months
-  if (isPastMonth(year, month)) return;
-
-  // Propagate to rest of same year
-  for (let m = month + 1; m < 12; m++) {
-    propagateToMonth(year, m, data);
-  }
-  // Propagate into future years
-  for (let y = year + 1; y <= CURRENT_YEAR + 4; y++) {
-    for (let m = 0; m < 12; m++) {
-      propagateToMonth(y, m, data);
-    }
-  }
+  // Auto-protect on any manual save
+  setProtected(year, month, true);
+  renderMonthTabs();
+  renderActionBar();
 }
 
-function propagateToMonth(year, month, sourceData) {
-  const key = storageKey(year, month);
-  const existing = localStorage.getItem(key);
+function setAsTemplate() {
+  if (!confirm(`Copy ${MONTHS[currentMonth]} ${currentYear} to all unprotected following months?`)) return;
 
-  // Only overwrite if not manually edited
-  if (!existing || JSON.parse(existing).__inherited) {
-    const inherited = sourceData.map(cat => ({
-      ...cat,
-      rows: cat.rows.map(r => ({ expense: r.expense, cost: r.cost, paid: false })),
-      __inherited: true
-    }));
-    localStorage.setItem(key, JSON.stringify(inherited));
+  const data = loadData(currentYear, currentMonth);
+  let count = 0;
+
+  // Remaining months in current year
+  for (let m = currentMonth + 1; m < 12; m++) {
+    if (!isProtected(currentYear, m)) {
+      const copy = data.map(cat => ({
+        ...cat,
+        rows: cat.rows.map(r => ({ expense: r.expense, cost: r.cost, paid: false }))
+      }));
+      localStorage.setItem(storageKey(currentYear, m), JSON.stringify(copy));
+      count++;
+    }
   }
+
+  // All future years
+  for (let y = currentYear + 1; y <= CURRENT_YEAR + 4; y++) {
+    for (let m = 0; m < 12; m++) {
+      if (!isProtected(y, m)) {
+        const copy = data.map(cat => ({
+          ...cat,
+          rows: cat.rows.map(r => ({ expense: r.expense, cost: r.cost, paid: false }))
+        }));
+        localStorage.setItem(storageKey(y, m), JSON.stringify(copy));
+        count++;
+      }
+    }
+  }
+
+  alert(`Done! ${count} month${count !== 1 ? 's' : ''} updated.`);
+  renderBudget();
 }
 
 function fmt(val) {
@@ -140,6 +125,7 @@ function renderApp() {
   renderYearSelect();
   renderMonthTabs();
   renderBudget();
+  renderActionBar();
 }
 
 function renderYearSelect() {
@@ -147,20 +133,37 @@ function renderYearSelect() {
   sel.innerHTML = YEARS.map(y =>
     `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`
   ).join('');
-  sel.onchange = () => { currentYear = parseInt(sel.value); renderMonthTabs(); renderBudget(); };
+  sel.onchange = () => { currentYear = parseInt(sel.value); renderMonthTabs(); renderBudget(); renderActionBar(); };
 }
 
 function renderMonthTabs() {
   const tabs = document.getElementById('monthTabs');
-  tabs.innerHTML = MONTHS.map((m, i) =>
-    `<button class="${i === currentMonth ? 'active' : ''}" onclick="switchMonth(${i})">${m}</button>`
-  ).join('');
+  tabs.innerHTML = MONTHS.map((m, i) => {
+    const locked = isProtected(currentYear, i);
+    return `<button class="${i === currentMonth ? 'active' : ''}" onclick="switchMonth(${i})">
+      ${m}${locked ? ' 🔒' : ''}
+    </button>`;
+  }).join('');
+}
+
+function renderActionBar() {
+  const bar = document.getElementById('actionBar');
+  const locked = isProtected(currentYear, currentMonth);
+  bar.innerHTML = `
+    <button class="action-btn template-btn" onclick="setAsTemplate()">
+      📋 Set as Template
+    </button>
+    <button class="action-btn protect-btn ${locked ? 'protected' : ''}" onclick="toggleProtection()">
+      ${locked ? '🔒 Protected' : '🔓 Unprotected'}
+    </button>
+  `;
 }
 
 function switchMonth(m) {
   currentMonth = m;
   renderMonthTabs();
   renderBudget();
+  renderActionBar();
 }
 
 function renderBudget() {
