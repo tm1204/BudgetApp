@@ -6,6 +6,22 @@ const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i);
 let currentYear = CURRENT_YEAR;
 let currentMonth = new Date().getMonth();
 
+// Register service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing;
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          if (confirm('A new version of the app is available. Refresh now?')) {
+            window.location.reload();
+          }
+        }
+      });
+    });
+  });
+}
+
 function storageKey(year, month) {
   return `budget_${year}_${month}`;
 }
@@ -47,7 +63,6 @@ function fmt(val) {
 
 function calcSummary(data) {
   let income = 0, totalExpenses = 0, paidExpenses = 0;
-
   data.forEach((cat, i) => {
     cat.rows.forEach(r => {
       const val = parseFloat(r.cost) || 0;
@@ -59,14 +74,7 @@ function calcSummary(data) {
       }
     });
   });
-
-  return {
-    income,
-    totalExpenses,
-    paidExpenses,
-    balance: income - totalExpenses,
-    inAccount: income - paidExpenses
-  };
+  return { income, totalExpenses, paidExpenses, balance: income - totalExpenses, inAccount: income - paidExpenses };
 }
 
 function renderApp() {
@@ -101,7 +109,6 @@ function renderBudget() {
   const { income, totalExpenses, paidExpenses, balance, inAccount } = calcSummary(data);
 
   const balanceCls = balance >= 0 ? 'positive' : 'negative';
-  const inAccountCls = 'in-account';
 
   let html = `
     <div class="summary-bar">
@@ -119,67 +126,69 @@ function renderBudget() {
       </div>
       <div class="summary-item">
         <span class="label">In Account</span>
-        <span class="value ${inAccountCls}">${fmt(inAccount)}</span>
+        <span class="value in-account">${fmt(inAccount)}</span>
       </div>
     </div>`;
 
-  // Calculate running remaining across all categories
   let runningRemaining = income;
 
   data.forEach((cat, catIdx) => {
-    // Section total
     const sectionTotal = cat.rows.reduce((sum, r) => sum + (parseFloat(r.cost) || 0), 0);
 
-    html += `<div class="section">
+    html += `
+    <div class="section">
       <div class="section-header">
         <span>${cat.name}</span>
         <span class="section-total">${fmt(sectionTotal)}</span>
       </div>
       <div class="col-headers">
-        <span>Expense</span>
-        <span>Cost</span>
-        <span>Remaining</span>
-        <span style="text-align:center">Paid</span>
-        <span></span>
+        <div class="ch-expense">Expense</div>
+        <div class="ch-cost">Cost</div>
+        <div class="ch-remaining">Remaining</div>
+        <div class="ch-paid">Paid</div>
+        <div class="ch-remove"></div>
       </div>`;
 
     cat.rows.forEach((row, rowIdx) => {
       const cost = parseFloat(row.cost) || 0;
-
-      let remVal, remDisplay, remCls;
+      let remDisplay, remCls;
 
       if (catIdx === 0) {
-        // Income rows — remaining just shows the value itself
-        remVal = cost;
         remDisplay = fmt(cost);
         remCls = 'positive';
       } else {
         runningRemaining -= cost;
-        remVal = runningRemaining;
-        remDisplay = (remVal < 0 ? '-' : '') + fmt(remVal);
-        remCls = remVal >= 0 ? 'positive' : 'negative';
+        remDisplay = (runningRemaining < 0 ? '-' : '') + fmt(runningRemaining);
+        remCls = runningRemaining >= 0 ? 'positive' : 'negative';
       }
 
       const checkedAttr = row.paid ? 'checked' : '';
+      const safeExpense = row.expense.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-      html += `<div class="budget-row">
-        <input type="text" placeholder="Expense name" value="${row.expense.replace(/"/g, '&quot;')}"
-          onchange="updateRow(${catIdx},${rowIdx},'expense',this.value)" />
-        <input type="number" placeholder="0.00" value="${row.cost}"
-          onchange="updateRow(${catIdx},${rowIdx},'cost',this.value)" />
-        <div class="remaining ${remCls}">${remDisplay}</div>
-        <div class="paid-cell">
+      html += `
+      <div class="budget-row">
+        <div class="cell-expense">
+          <input type="text" placeholder="Expense name" value="${safeExpense}"
+            onchange="updateRow(${catIdx},${rowIdx},'expense',this.value)" />
+        </div>
+        <div class="cell-cost">
+          <input type="number" placeholder="0.00" value="${row.cost}"
+            onchange="updateRow(${catIdx},${rowIdx},'cost',this.value)" />
+        </div>
+        <div class="cell-remaining">
+          <span class="remaining ${remCls}">${remDisplay}</span>
+        </div>
+        <div class="cell-paid">
           <input type="checkbox" ${checkedAttr}
             onchange="updateRow(${catIdx},${rowIdx},'paid',this.checked)" />
         </div>
-        <button class="remove-btn" onclick="removeRow(${catIdx},${rowIdx})">−</button>
+        <div class="cell-remove">
+          <button class="remove-btn" onclick="removeRow(${catIdx},${rowIdx})">−</button>
+        </div>
       </div>`;
     });
 
-    // Reset running remaining for income category (it doesn't deduct)
-    if (catIdx === 0) {
-      runningRemaining = income;
-    }
+    if (catIdx === 0) runningRemaining = income;
 
     html += `<button class="add-btn" onclick="addRow(${catIdx})">+ Add row</button></div>`;
   });
