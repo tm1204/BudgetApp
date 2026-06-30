@@ -67,48 +67,98 @@ main { padding: 16px; }
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: #3a3a3c;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.section-header .section-total {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1c1c1e;
 }
 
 .col-headers {
   display: grid;
-  grid-template-columns: 1fr 120px 120px 36px;
+  grid-template-columns: 2fr 90px 100px 56px 44px;
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: #8e8e93;
   border-bottom: 1px solid #f2f2f7;
+  gap: 6px;
+}
+
+.col-headers span:nth-child(2),
+.col-headers span:nth-child(3) {
+  text-align: right;
+}
+
+.col-headers span:nth-child(4) {
+  text-align: center;
 }
 
 .budget-row {
   display: grid;
-  grid-template-columns: 1fr 120px 120px 36px;
+  grid-template-columns: 2fr 90px 100px 56px 44px;
   align-items: center;
-  padding: 6px 14px;
+  padding: 5px 14px;
   border-bottom: 1px solid #f2f2f7;
-  gap: 8px;
+  gap: 6px;
 }
 
-.budget-row input {
+.budget-row input[type="text"] {
   border: none;
   outline: none;
-  font-size: 14px;
+  font-size: 12px;
   background: transparent;
   width: 100%;
   padding: 4px 0;
+  min-width: 0;
 }
 
 .budget-row input[type="number"] {
+  border: none;
+  outline: none;
+  font-size: 12px;
+  background: transparent;
+  width: 100%;
+  padding: 4px 0;
   text-align: right;
+  min-width: 0;
 }
 
 .remaining {
-  font-size: 14px;
+  font-size: 12px;
   text-align: right;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .remaining.negative { color: #ff3b30; }
 .remaining.positive { color: #34c759; }
+
+.paid-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.paid-cell label {
+  font-size: 9px;
+  color: #8e8e93;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.paid-cell input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #34c759;
+  cursor: pointer;
+}
 
 .remove-btn {
   background: none;
@@ -118,6 +168,7 @@ main { padding: 16px; }
   cursor: pointer;
   padding: 0;
   line-height: 1;
+  justify-self: center;
 }
 
 .add-btn {
@@ -141,9 +192,29 @@ main { padding: 16px; }
   padding: 14px 16px;
   border-radius: 12px;
   margin-bottom: 16px;
-  display: flex;
-  justify-content: space-between;
-  font-size: 15px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
-.summary-bar span { font-weight: 700; }
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summary-item .label {
+  font-size: 11px;
+  color: #8e8e93;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.summary-item .value {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.summary-item .value.negative { color: #ff3b30; }
+.summary-item .value.positive { color: #34c759; }
+.summary-item .value.in-account { color: #0a84ff; }
