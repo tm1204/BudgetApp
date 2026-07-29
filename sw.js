@@ -1,4 +1,4 @@
-const CACHE_NAME = 'budget-app-v4.2';
+const CACHE_NAME = 'budget-app-v4.3';
 const ASSETS = [
   './',
   './index.html',
@@ -9,7 +9,6 @@ const ASSETS = [
   './Icons/icon-512.png'
 ];
 
-// Install — cache all assets
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
@@ -17,7 +16,6 @@ self.addEventListener('install', event => {
   self.skipWaiting();
 });
 
-// Activate — delete old caches
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -27,7 +25,6 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-// Fetch — serve from cache, fall back to network
 self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(event.request).then(cached => cached || fetch(event.request))

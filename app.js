@@ -1,9 +1,10 @@
-const CACHE_NAME = 'budget-app-v4.2';
+const CACHE_NAME = 'budget-app-v4.3';
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i);
 
 const INCOME_COLOUR = '#e5e5ea';
+const UNDO_LIMIT = 10;
 
 const PALETTE = [
   '#FF6B6B', '#2ECC71', '#3498DB', '#9B59B6',
@@ -48,6 +49,24 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// ── Persistent Storage ──────────────────────────────────────────────────────
+function requestPersistentStorage() {
+  if (navigator.storage && navigator.storage.persist) {
+    return navigator.storage.persist();
+  }
+  return Promise.resolve(false);
+}
+
+function checkPersistentStorage() {
+  if (navigator.storage && navigator.storage.persisted) {
+    return navigator.storage.persisted();
+  }
+  return Promise.resolve(false);
+}
+
+// Silently request on load
+requestPersistentStorage();
+
 // ── Storage Helpers ─────────────────────────────────────────────────────────
 function storageKey(year, month)    { return `budget_${year}_${month}`; }
 function protectionKey(year, month) { return `protected_${year}_${month}`; }
@@ -73,12 +92,104 @@ function getNextColour(data) {
   return PALETTE[data.length % PALETTE.length];
 }
 
+function isRelevantKey(key) {
+  return key.startsWith('budget_') || key.startsWith('protected_');
+}
+
+// ── Undo / Redo ──────────────────────────────────────────────────────────────
+function getUndoStack() {
+  const raw = localStorage.getItem('__undoStack');
+  return raw ? JSON.parse(raw) : [];
+}
+function setUndoStack(stack) {
+  localStorage.setItem('__undoStack', JSON.stringify(stack));
+}
+function getRedoStack() {
+  const raw = localStorage.getItem('__redoStack');
+  return raw ? JSON.parse(raw) : [];
+}
+function setRedoStack(stack) {
+  localStorage.setItem('__redoStack', JSON.stringify(stack));
+}
+
+function snapshotState() {
+  const snap = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (isRelevantKey(key)) snap[key] = localStorage.getItem(key);
+  }
+  return snap;
+}
+
+function restoreState(snapshot) {
+  // Clear existing relevant keys
+  const toRemove = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (isRelevantKey(key)) toRemove.push(key);
+  }
+  toRemove.forEach(k => localStorage.removeItem(k));
+  // Restore snapshot
+  Object.keys(snapshot).forEach(k => localStorage.setItem(k, snapshot[k]));
+}
+
+// Call BEFORE any mutation
+function recordUndo(description) {
+  const stack = getUndoStack();
+  stack.push({ desc: description, snapshot: snapshotState() });
+  while (stack.length > UNDO_LIMIT) stack.shift();
+  setUndoStack(stack);
+  setRedoStack([]); // new action clears redo
+}
+
+function withUndo(description, mutateFn) {
+  recordUndo(description);
+  mutateFn();
+}
+
+function undoLastAction() {
+  const undoStack = getUndoStack();
+  if (undoStack.length === 0) { closeSheet(); alert('Nothing to undo.'); return; }
+  const entry = undoStack.pop();
+  setUndoStack(undoStack);
+
+  const redoStack = getRedoStack();
+  redoStack.push({ desc: entry.desc, snapshot: snapshotState() });
+  while (redoStack.length > UNDO_LIMIT) redoStack.shift();
+  setRedoStack(redoStack);
+
+  restoreState(entry.snapshot);
+  closeSheet();
+  renderMonthTabs();
+  renderBudget();
+  renderActionBar();
+  alert(`Undone: ${entry.desc}`);
+}
+
+function redoLastAction() {
+  const redoStack = getRedoStack();
+  if (redoStack.length === 0) { closeSheet(); alert('Nothing to redo.'); return; }
+  const entry = redoStack.pop();
+  setRedoStack(redoStack);
+
+  const undoStack = getUndoStack();
+  undoStack.push({ desc: entry.desc, snapshot: snapshotState() });
+  while (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  setUndoStack(undoStack);
+
+  restoreState(entry.snapshot);
+  closeSheet();
+  renderMonthTabs();
+  renderBudget();
+  renderActionBar();
+  alert(`Redone: ${entry.desc}`);
+}
+
 // ── Data ────────────────────────────────────────────────────────────────────
 function loadData(year, month) {
   const raw = localStorage.getItem(storageKey(year, month));
   if (raw) {
     const parsed = JSON.parse(raw);
-    // Enforce isIncome on index 0 — fixes data saved before v4.0
     return parsed.map((cat, idx) => ({
       ...cat,
       isIncome: idx === 0,
@@ -98,35 +209,40 @@ function saveData(year, month, data) {
 // ── Template ────────────────────────────────────────────────────────────────
 function setAsTemplate() {
   if (!confirm(`Copy ${MONTHS[currentMonth]} ${currentYear} to all unprotected following months?`)) return;
-  const data = loadData(currentYear, currentMonth);
-  let count = 0;
+  withUndo(`Set as Template from ${MONTHS[currentMonth]} ${currentYear}`, () => {
+    const data = loadData(currentYear, currentMonth);
+    let count = 0;
 
-  for (let m = currentMonth + 1; m < 12; m++) {
-    if (!isProtected(currentYear, m)) {
-      localStorage.setItem(storageKey(currentYear, m), JSON.stringify(
-        data.map(cat => ({ ...cat, rows: cat.rows.map(r => ({ expense: r.expense, cost: r.cost, paid: false })) }))
-      ));
-      count++;
-    }
-  }
-  for (let y = currentYear + 1; y <= CURRENT_YEAR + 4; y++) {
-    for (let m = 0; m < 12; m++) {
-      if (!isProtected(y, m)) {
-        localStorage.setItem(storageKey(y, m), JSON.stringify(
+    for (let m = currentMonth + 1; m < 12; m++) {
+      if (!isProtected(currentYear, m)) {
+        localStorage.setItem(storageKey(currentYear, m), JSON.stringify(
           data.map(cat => ({ ...cat, rows: cat.rows.map(r => ({ expense: r.expense, cost: r.cost, paid: false })) }))
         ));
         count++;
       }
     }
-  }
-  alert(`Done! ${count} month${count !== 1 ? 's' : ''} updated.`);
-  renderBudget();
+    for (let y = currentYear + 1; y <= CURRENT_YEAR + 4; y++) {
+      for (let m = 0; m < 12; m++) {
+        if (!isProtected(y, m)) {
+          localStorage.setItem(storageKey(y, m), JSON.stringify(
+            data.map(cat => ({ ...cat, rows: cat.rows.map(r => ({ expense: r.expense, cost: r.cost, paid: false })) }))
+          ));
+          count++;
+        }
+      }
+    }
+    alert(`Done! ${count} month${count !== 1 ? 's' : ''} updated.`);
+    renderBudget();
+  });
 }
 
 function toggleProtection() {
-  setProtected(currentYear, currentMonth, !isProtected(currentYear, currentMonth));
-  renderMonthTabs();
-  renderActionBar();
+  const willProtect = !isProtected(currentYear, currentMonth);
+  withUndo(`${willProtect ? 'Protected' : 'Unprotected'} ${MONTHS[currentMonth]} ${currentYear}`, () => {
+    setProtected(currentYear, currentMonth, willProtect);
+    renderMonthTabs();
+    renderActionBar();
+  });
 }
 
 // ── Bottom Sheet ─────────────────────────────────────────────────────────────
@@ -141,11 +257,229 @@ function closeSheet() {
   document.getElementById('sheetOverlay').classList.remove('open');
 }
 
+// ── Main Menu ────────────────────────────────────────────────────────────────
+function openMainMenu() {
+  const undoCount = getUndoStack().length;
+  const redoCount = getRedoStack().length;
+
+  const html = `
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">BudgetApp Menu</div>
+
+    <button class="sheet-option" onclick="openExportMenu()">
+      <span class="sheet-option-icon">📤</span> Export
+    </button>
+
+    <button class="sheet-option" onclick="openImportMenu()">
+      <span class="sheet-option-icon">📥</span> Import
+    </button>
+
+    <button class="sheet-option" onclick="openPermissionsMenu()">
+      <span class="sheet-option-icon">🔐</span> Permissions
+    </button>
+
+    <button class="sheet-option ${undoCount === 0 ? 'disabled' : ''}"
+      onclick="${undoCount === 0 ? '' : 'undoLastAction()'}">
+      <span class="sheet-option-icon">↩️</span> Undo
+      <span class="sheet-option-sub">${undoCount > 0 ? undoCount : ''}</span>
+    </button>
+
+    <button class="sheet-option ${redoCount === 0 ? 'disabled' : ''}"
+      onclick="${redoCount === 0 ? '' : 'redoLastAction()'}">
+      <span class="sheet-option-icon">↪️</span> Redo
+      <span class="sheet-option-sub">${redoCount > 0 ? redoCount : ''}</span>
+    </button>
+
+    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
+  `;
+  openSheet(html);
+}
+
+// ── Export Menu ──────────────────────────────────────────────────────────────
+function openExportMenu() {
+  const html = `
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Export</div>
+
+    <button class="sheet-option" onclick="exportCurrentMonth()">
+      <span class="sheet-option-icon">📄</span> Export Current Month As Template
+    </button>
+
+    <button class="sheet-option" onclick="exportFullHistory()">
+      <span class="sheet-option-icon">🗂️</span> Export Entire Budget History
+    </button>
+
+    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
+  `;
+  openSheet(html);
+}
+
+function downloadJSON(filename, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportCurrentMonth() {
+  const data = loadData(currentYear, currentMonth);
+  const payload = {
+    version: 1,
+    type: 'month',
+    year: currentYear,
+    month: currentMonth,
+    protected: isProtected(currentYear, currentMonth),
+    data
+  };
+  const monthStr = String(currentMonth + 1).padStart(2, '0');
+  downloadJSON(`budget-template-${currentYear}-${monthStr}.json`, payload);
+  closeSheet();
+}
+
+function exportFullHistory() {
+  const entries = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (isRelevantKey(key)) entries[key] = JSON.parse(localStorage.getItem(key));
+  }
+  const payload = {
+    version: 1,
+    type: 'history',
+    exportedAt: new Date().toISOString(),
+    entries
+  };
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadJSON(`budget-history-full-${stamp}.json`, payload);
+  closeSheet();
+}
+
+// ── Import Menu ──────────────────────────────────────────────────────────────
+let pendingImportType = null;
+
+function openImportMenu() {
+  const html = `
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Import</div>
+
+    <button class="sheet-option" onclick="triggerImport('month')">
+      <span class="sheet-option-icon">📄</span> Import a Single Month Template
+    </button>
+
+    <button class="sheet-option" onclick="triggerImport('history')">
+      <span class="sheet-option-icon">🗂️</span> Import Budget History
+    </button>
+
+    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
+  `;
+  openSheet(html);
+}
+
+function triggerImport(type) {
+  pendingImportType = type;
+  closeSheet();
+  document.getElementById('importFileInput').click();
+}
+
+function handleImportFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+
+      if (pendingImportType === 'month') {
+        if (parsed.type !== 'month' || !parsed.data) {
+          alert('This file is not a valid single month template.');
+          return;
+        }
+        if (!confirm(`Import this template into ${MONTHS[currentMonth]} ${currentYear}? This will overwrite existing data for this month.`)) return;
+
+        withUndo(`Imported template into ${MONTHS[currentMonth]} ${currentYear}`, () => {
+          saveData(currentYear, currentMonth, parsed.data);
+          if (typeof parsed.protected === 'boolean') setProtected(currentYear, currentMonth, parsed.protected);
+          renderBudget();
+        });
+        alert('Import complete.');
+      }
+
+      if (pendingImportType === 'history') {
+        if (parsed.type !== 'history' || !parsed.entries) {
+          alert('This file is not a valid budget history export.');
+          return;
+        }
+        const keyCount = Object.keys(parsed.entries).length;
+        if (!confirm(`Import full history? This will overwrite ${keyCount} saved month(s)/setting(s). This cannot be undone via Undo for entries beyond the last 10 changes.`)) return;
+
+        withUndo('Imported full budget history', () => {
+          Object.keys(parsed.entries).forEach(key => {
+            localStorage.setItem(key, JSON.stringify(parsed.entries[key]));
+          });
+          renderMonthTabs();
+          renderBudget();
+          renderActionBar();
+        });
+        alert('Import complete.');
+      }
+    } catch (err) {
+      alert('Could not read this file. Please make sure it is a valid BudgetApp export.');
+    }
+    event.target.value = '';
+    pendingImportType = null;
+  };
+  reader.readAsText(file);
+}
+
+// ── Permissions Menu ─────────────────────────────────────────────────────────
+function openPermissionsMenu() {
+  const html = `
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Permissions</div>
+    <div id="permissionStatusRow" class="permission-status">
+      <span>Persistent Storage</span>
+      <span class="permission-badge">Checking...</span>
+    </div>
+    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
+  `;
+  openSheet(html);
+
+  checkPersistentStorage().then(granted => {
+    const row = document.getElementById('permissionStatusRow');
+    if (!row) return;
+    if (granted) {
+      row.innerHTML = `
+        <span>Persistent Storage</span>
+        <span class="permission-badge granted">Granted</span>
+      `;
+    } else {
+      row.innerHTML = `
+        <span>Persistent Storage</span>
+        <span style="display:flex; align-items:center; gap:8px;">
+          <span class="permission-badge denied">Not Granted</span>
+          <button class="permission-request-btn" onclick="requestPermissionFromMenu()">Request</button>
+        </span>
+      `;
+    }
+  });
+}
+
+function requestPermissionFromMenu() {
+  requestPersistentStorage().then(() => {
+    openPermissionsMenu();
+  });
+}
+
+// ── Category Menu ────────────────────────────────────────────────────────────
 function openCategoryMenu(catIdx) {
   const data    = loadData(currentYear, currentMonth);
   const cat     = data[catIdx];
   const isInc   = cat.isIncome;
-  // Move Up disabled if income, or if already at index 1 (directly below income)
   const disableUp   = isInc || catIdx <= 1;
   const disableDown = isInc || catIdx === data.length - 1;
 
@@ -184,11 +518,15 @@ function openCategoryMenu(catIdx) {
 
 function sheetRename(catIdx) {
   const data = loadData(currentYear, currentMonth);
-  const name = prompt('Rename category:', data[catIdx].name);
+  const oldName = data[catIdx].name;
+  const name = prompt('Rename category:', oldName);
   if (name && name.trim()) {
-    data[catIdx].name = name.trim();
-    saveData(currentYear, currentMonth, data);
-    renderBudget();
+    withUndo(`Renamed "${oldName}" to "${name.trim()}"`, () => {
+      const d = loadData(currentYear, currentMonth);
+      d[catIdx].name = name.trim();
+      saveData(currentYear, currentMonth, d);
+      renderBudget();
+    });
   }
   closeSheet();
 }
@@ -215,53 +553,60 @@ function sheetColour(catIdx) {
 
 function applyColour(catIdx, colour) {
   const data = loadData(currentYear, currentMonth);
-  data[catIdx].colour = colour;
-  saveData(currentYear, currentMonth, data);
+  const name = data[catIdx].name;
+  withUndo(`Changed colour of "${name}"`, () => {
+    const d = loadData(currentYear, currentMonth);
+    d[catIdx].colour = colour;
+    saveData(currentYear, currentMonth, d);
+    renderBudget();
+  });
   closeSheet();
-  renderBudget();
 }
 
 function sheetMove(catIdx, direction) {
   const data   = loadData(currentYear, currentMonth);
   const newIdx = catIdx + direction;
 
-  // Never move out of bounds
   if (newIdx < 0 || newIdx >= data.length) { closeSheet(); return; }
-
-  // Income never moves
   if (data[catIdx].isIncome) { closeSheet(); return; }
-
-  // No category can move into index 0 — Income's permanent position
   if (newIdx === 0) { closeSheet(); return; }
 
-  [data[catIdx], data[newIdx]] = [data[newIdx], data[catIdx]];
-
-  // Re-enforce isIncome by index as a final safety net
-  data.forEach((cat, idx) => { cat.isIncome = idx === 0; });
-
-  saveData(currentYear, currentMonth, data);
+  const name = data[catIdx].name;
+  withUndo(`Moved "${name}" ${direction < 0 ? 'up' : 'down'}`, () => {
+    const d = loadData(currentYear, currentMonth);
+    [d[catIdx], d[newIdx]] = [d[newIdx], d[catIdx]];
+    d.forEach((cat, idx) => { cat.isIncome = idx === 0; });
+    saveData(currentYear, currentMonth, d);
+    renderBudget();
+  });
   closeSheet();
-  renderBudget();
 }
 
 function sheetDelete(catIdx) {
   const data = loadData(currentYear, currentMonth);
   if (data[catIdx].isIncome) { closeSheet(); return; }
-  if (!confirm(`Delete "${data[catIdx].name}"? This cannot be undone.`)) { closeSheet(); return; }
-  data.splice(catIdx, 1);
-  saveData(currentYear, currentMonth, data);
+  const name = data[catIdx].name;
+  if (!confirm(`Delete "${name}"? This cannot be undone via app, but Undo can restore it.`)) { closeSheet(); return; }
+
+  withUndo(`Deleted category "${name}"`, () => {
+    const d = loadData(currentYear, currentMonth);
+    d.splice(catIdx, 1);
+    saveData(currentYear, currentMonth, d);
+    renderBudget();
+  });
   closeSheet();
-  renderBudget();
 }
 
 function addCategory() {
   const name = prompt('New category name:');
   if (!name || !name.trim()) return;
-  const data   = loadData(currentYear, currentMonth);
-  const colour = getNextColour(data);
-  data.push({ name: name.trim(), colour, isIncome: false, rows: [{ expense: '', cost: '', paid: false }] });
-  saveData(currentYear, currentMonth, data);
-  renderBudget();
+  withUndo(`Added category "${name.trim()}"`, () => {
+    const data   = loadData(currentYear, currentMonth);
+    const colour = getNextColour(data);
+    data.push({ name: name.trim(), colour, isIncome: false, rows: [{ expense: '', cost: '', paid: false }] });
+    saveData(currentYear, currentMonth, data);
+    renderBudget();
+  });
 }
 
 // ── Pie Chart ────────────────────────────────────────────────────────────────
@@ -282,18 +627,18 @@ function renderChart(data) {
   let angle  = -Math.PI / 2;
 
   expenses.forEach((cat, i) => {
-    const pct   = totals[i] / total;
+    const pct = totals[i] / total;
     if (pct === 0) return;
     const sweep = pct * 2 * Math.PI;
-    const x1    = cx + radius * Math.cos(angle);
-    const y1    = cy + radius * Math.sin(angle);
-    angle      += sweep;
-    const x2    = cx + radius * Math.cos(angle);
-    const y2    = cy + radius * Math.sin(angle);
-    const ix1   = cx + inner * Math.cos(angle - sweep);
-    const iy1   = cy + inner * Math.sin(angle - sweep);
-    const ix2   = cx + inner * Math.cos(angle);
-    const iy2   = cy + inner * Math.sin(angle);
+    const x1 = cx + radius * Math.cos(angle);
+    const y1 = cy + radius * Math.sin(angle);
+    angle += sweep;
+    const x2 = cx + radius * Math.cos(angle);
+    const y2 = cy + radius * Math.sin(angle);
+    const ix1 = cx + inner * Math.cos(angle - sweep);
+    const iy1 = cy + inner * Math.sin(angle - sweep);
+    const ix2 = cx + inner * Math.cos(angle);
+    const iy2 = cy + inner * Math.sin(angle);
     const large = sweep > Math.PI ? 1 : 0;
 
     slices += `<path d="
@@ -491,24 +836,39 @@ function renderBudget() {
 
 function updateRow(catIdx, rowIdx, field, value) {
   const data = loadData(currentYear, currentMonth);
-  data[catIdx].rows[rowIdx][field] = value;
-  saveData(currentYear, currentMonth, data);
-  renderBudget();
+  const expenseName = data[catIdx].rows[rowIdx].expense || '(unnamed)';
+  const fieldLabel = field === 'expense' ? 'name' : field === 'cost' ? 'cost' : 'paid status';
+
+  withUndo(`Edited ${fieldLabel} of "${expenseName}"`, () => {
+    const d = loadData(currentYear, currentMonth);
+    d[catIdx].rows[rowIdx][field] = value;
+    saveData(currentYear, currentMonth, d);
+    renderBudget();
+  });
 }
 
 function addRow(catIdx) {
   const data = loadData(currentYear, currentMonth);
-  data[catIdx].rows.push({ expense: '', cost: '', paid: false });
-  saveData(currentYear, currentMonth, data);
-  renderBudget();
+  const catName = data[catIdx].name;
+  withUndo(`Added row to "${catName}"`, () => {
+    const d = loadData(currentYear, currentMonth);
+    d[catIdx].rows.push({ expense: '', cost: '', paid: false });
+    saveData(currentYear, currentMonth, d);
+    renderBudget();
+  });
 }
 
 function removeRow(catIdx, rowIdx) {
   const data = loadData(currentYear, currentMonth);
   if (data[catIdx].rows.length > 1) {
-    data[catIdx].rows.splice(rowIdx, 1);
-    saveData(currentYear, currentMonth, data);
-    renderBudget();
+    const row = data[catIdx].rows[rowIdx];
+    const desc = `Removed row "${row.expense || '(unnamed)'}" (${fmt(parseFloat(row.cost) || 0)}) from "${data[catIdx].name}"`;
+    withUndo(desc, () => {
+      const d = loadData(currentYear, currentMonth);
+      d[catIdx].rows.splice(rowIdx, 1);
+      saveData(currentYear, currentMonth, d);
+      renderBudget();
+    });
   }
 }
 

@@ -12,19 +12,25 @@
   <title>BudgetApp</title>
 </head>
 <body>
-  <header>
-    <div class="header-left">
-      <img src="Icons/icon-192.png" class="header-icon" alt="BudgetApp" />
-      <span class="header-title">BudgetApp</span>
-    </div>
-    <select id="yearSelect"></select>
-  </header>
+  <div class="sticky-wrap">
+    <header>
+      <button class="header-left" id="menuTrigger" onclick="openMainMenu()">
+        <img src="Icons/icon-192.png" class="header-icon" alt="BudgetApp" />
+        <span class="header-title">BudgetApp</span>
+        <span class="menu-caret">▾</span>
+      </button>
+      <select id="yearSelect"></select>
+    </header>
 
-  <div class="month-tabs" id="monthTabs"></div>
+    <div class="month-tabs" id="monthTabs"></div>
+  </div>
 
   <main id="budgetContent"></main>
 
   <div class="action-bar" id="actionBar"></div>
+
+  <!-- Hidden file input for imports -->
+  <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="handleImportFile(event)" />
 
   <!-- Bottom sheet overlay -->
   <div class="sheet-overlay" id="sheetOverlay" onclick="closeSheet()"></div>

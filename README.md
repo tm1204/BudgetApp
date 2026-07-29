@@ -17,13 +17,14 @@ https://tm1204.github.io/BudgetApp/
 3. Select **"Add to Home Screen"**
 4. Tap **Add**
 
-The app will appear on your home screen and run in full-screen mode like a native app. When a new version is deployed, the app will automatically prompt you to refresh.
+The app will appear on your home screen and run in full-screen mode like a native app. When a new version is deployed, the app will automatically prompt you to refresh, checking every time the app becomes visible.
 
 ---
 
 ## ✨ Features
 
 ### 💼 Budget Management
+- **Sticky header** — app title, year selector, and month tabs remain visible while scrolling
 - **Year selector** — top right, covers current year + 4 years ahead
 - **Monthly tabs** — one tab per month, January through December
 - **Summary bar** — always-visible totals for Income, Total Expenses, Balance and In Account
@@ -34,8 +35,8 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 - **Add custom categories** — via the "+ Add Category" button at the bottom of the list
 - **Rename categories** — via the ⋯ menu on each category header (Income excluded)
 - **Delete categories** — via the ⋯ menu with confirmation prompt (Income excluded)
-- **Reorder categories** — Move Up / Move Down via the ⋯ menu (Income always stays top)
-- **Category colours** — each category has a selectable colour from a 16-colour palette, applied to the section header and pie chart
+- **Reorder categories** — Move Up / Move Down via the ⋯ menu; Income is permanently locked to the top position and no category can be moved above position 2
+- **Category colours** — each category has a selectable colour from a 16-colour palette, applied to the section header and pie chart; Income has its own fixed selectable colour separate from the expense palette
 - **Section totals** — each category header displays the sum of all its rows on the right
 
 ### 📋 Rows
@@ -61,6 +62,34 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 - **🔒 indicator** — protected months show a lock icon on the month tab
 - Propagation skips protected months but continues to unprotected months beyond them
 
+### 📖 Main Menu
+Accessed by tapping the **BudgetApp** name/icon in the top left, now a dropdown trigger button:
+- **Export** — Export Current Month As Template, or Export Entire Budget History
+- **Import** — Import a Single Month Template, or Import Budget History
+- **Permissions** — view and request Persistent Storage status
+- **Undo** — reverts the most recent action, shows count of available undos
+- **Redo** — reapplies the most recently undone action, shows count of available redos
+
+### 📤 Export / Import
+- **Export Current Month As Template** — downloads a JSON file containing the current month's categories, rows, and protection status
+- **Export Entire Budget History** — downloads a JSON file containing all saved months and protection flags across all years (undo/redo history excluded)
+- **Import a Single Month Template** — overwrites the currently selected month only, with confirmation prompt
+- **Import Budget History** — overwrites all matching saved months/settings from the file, with confirmation prompt
+- All imports are recorded on the Undo stack
+
+### ↩️ Undo / Redo
+- Covers all mutating actions: row edits, add/remove row, category rename/colour/move/delete/add, Set as Template, protection toggle, and imports
+- Stores the last **10 actions**
+- Undo stack is cleared of redo history whenever a new action is performed after an undo (standard undo/redo behaviour)
+- Persists across page refresh — stored in localStorage
+- Each undo/redo shows a plain-language description of the action reverted or reapplied
+
+### 🔐 Persistent Storage
+- App automatically requests persistent storage permission from the browser on load, reducing the chance of iOS automatically clearing budget data during storage cleanup
+- Permissions menu shows live Granted / Not Granted status
+- "Request" button available if not yet granted
+- Does not protect against manually clearing Safari website data — use Export for a true backup
+
 ### 🔄 Auto-Update
 - Service worker caches all app assets for offline use
 - Checks for updates every time the app becomes visible
@@ -71,16 +100,15 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 ## 🗂️ Project Structure
 
     BudgetApp/
-    ├── index.html          # App shell, meta tags, PWA configuration
-    ├── style.css           # All styling — layout, components, animations
-    ├── app.js              # All app logic, data management, rendering
+    ├── index.html          # App shell, meta tags, PWA configuration, sticky header
+    ├── style.css           # All styling — layout, components, sheets, sticky positioning
+    ├── app.js              # All app logic, data management, undo/redo, export/import, rendering
     ├── sw.js               # Service worker — caching and update detection
     ├── manifest.json       # PWA manifest — icons, display mode, theme
     ├── README.md           # This file
     └── Icons/
         ├── icon-192.png    # App icon — home screen
         └── icon-512.png    # App icon — splash screen
-
 
 ---
 
@@ -94,8 +122,10 @@ All budget data is stored in the browser's localStorage — no server, no accoun
 |---|---|
 | budget_{year}_{month} | Full category and row data for that month |
 | protected_{year}_{month} | Protection flag for that month |
+| __undoStack | Last 10 undo snapshots |
+| __redoStack | Last 10 redo snapshots |
 
-⚠️ Clearing Safari's website data will erase all budget entries. There is currently no export or backup feature.
+⚠️ Clearing Safari's website data will erase all budget entries and undo/redo history. Use Export regularly for a true backup, and grant Persistent Storage permission via the Permissions menu to reduce automatic data loss.
 
 ---
 
@@ -135,7 +165,7 @@ A curated palette of 16 colours is available for category headers and the pie ch
 | 15 | Slate | #708090 |
 | 16 | Yellow | #F1C40F |
 
-New categories automatically cycle through the palette in order, skipping colours already in use. Income is fixed at the default grey (#e5e5ea) and is not part of the selectable palette.
+New categories automatically cycle through the palette in order, skipping colours already in use. Income's colour is independently selectable and defaults to a fixed light grey (#e5e5ea), kept separate from the expense palette.
 
 ---
 
@@ -143,15 +173,15 @@ New categories automatically cycle through the palette in order, skipping colour
 
 When deploying a new version, update the cache name in both sw.js and app.js:
 
-    const CACHE_NAME = 'budget-app-v4.0';
+    const CACHE_NAME = 'budget-app-v4.3';
 
 Change this string with every release. This triggers the service worker to clear old caches and prompt users to refresh. Recommended versioning convention:
 
 | Change Type | Example |
 |---|---|
 | Major new features | budget-app-v5.0 |
-| Minor additions | budget-app-v4.1 |
-| Bug fixes | budget-app-v4.0.1 |
+| Minor additions | budget-app-v4.4 |
+| Bug fixes | budget-app-v4.3.1 |
 
 ---
 
@@ -167,15 +197,20 @@ Change this string with every release. This triggers the service worker to clear
 | v3.3 | Propagation fix — cleanup of empty inherited placeholders written by old code |
 | v3.4 | Replaced auto-propagation with Set as Template button, Protected toggle, auto-protect on edit, lock icons on tabs |
 | v4.0 | App name and icon in header, category colours, ⋯ ellipsis menu (rename/colour/move/delete), add custom categories, donut pie chart, visibility-change update check |
+| v4.1 | Bug fix — icon path corrected (Icons folder casing), Income isIncome flag enforced on load to fix legacy data being treated as an expense |
+| v4.2 | Bug fix — Move Up disabled at position 2, hard block preventing any category from occupying Income's position 1, isIncome re-enforced after every category move |
+| v4.3 | Main menu system (Export, Import, Permissions, Undo, Redo) accessed via app name button, Export Current Month/Full History, Import Month/History, Persistent Storage request and status, full Undo/Redo covering all actions (10-deep, persisted), sticky header while scrolling |
 
 ---
 
 ## 🛠️ Built With
 
 - HTML5
-- CSS3 (CSS Grid, custom properties, transitions)
+- CSS3 (CSS Grid, custom properties, sticky positioning, transitions)
 - Vanilla JavaScript (ES6+)
 - Web Storage API (localStorage)
 - Service Worker API
 - Web App Manifest (PWA)
-- SVG (pie chart rendering)        
+- Storage Manager API (persistent storage)
+- SVG (pie chart rendering)
+- Blob / File API (export and import)
