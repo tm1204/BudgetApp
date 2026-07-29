@@ -12,6 +12,7 @@
   <title>BudgetApp</title>
 </head>
 <body>
+  <!-- Sticky wrapper keeps header + month tabs visible while scrolling -->
   <div class="sticky-wrap">
     <header>
       <button class="header-left" id="menuTrigger" onclick="openMainMenu()">
@@ -29,10 +30,10 @@
 
   <div class="action-bar" id="actionBar"></div>
 
-  <!-- Hidden file input for imports -->
+  <!-- Hidden file input used to trigger native file picker for imports -->
   <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="handleImportFile(event)" />
 
-  <!-- Bottom sheet overlay -->
+  <!-- Bottom sheet overlay used for main menu, category menu, colour picker etc -->
   <div class="sheet-overlay" id="sheetOverlay" onclick="closeSheet()"></div>
   <div class="bottom-sheet" id="bottomSheet"></div>
 

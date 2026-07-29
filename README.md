@@ -63,7 +63,7 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 - Propagation skips protected months but continues to unprotected months beyond them
 
 ### 📖 Main Menu
-Accessed by tapping the **BudgetApp** name/icon in the top left, now a dropdown trigger button:
+Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trigger button:
 - **Export** — Export Current Month As Template, or Export Entire Budget History
 - **Import** — Import a Single Month Template, or Import Budget History
 - **Permissions** — view and request Persistent Storage status
@@ -92,6 +92,7 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, now a dropdown 
 
 ### 🔄 Auto-Update
 - Service worker caches all app assets for offline use
+- `updateViaCache: 'none'` ensures the browser's HTTP cache never serves a stale service worker file
 - Checks for updates every time the app becomes visible
 - Prompts user to refresh when a new version is available
 
@@ -173,7 +174,7 @@ New categories automatically cycle through the palette in order, skipping colour
 
 When deploying a new version, update the cache name in both sw.js and app.js:
 
-    const CACHE_NAME = 'budget-app-v4.3';
+    const CACHE_NAME = 'budget-app-v4.3.1';
 
 Change this string with every release. This triggers the service worker to clear old caches and prompt users to refresh. Recommended versioning convention:
 
@@ -200,6 +201,7 @@ Change this string with every release. This triggers the service worker to clear
 | v4.1 | Bug fix — icon path corrected (Icons folder casing), Income isIncome flag enforced on load to fix legacy data being treated as an expense |
 | v4.2 | Bug fix — Move Up disabled at position 2, hard block preventing any category from occupying Income's position 1, isIncome re-enforced after every category move |
 | v4.3 | Main menu system (Export, Import, Permissions, Undo, Redo) accessed via app name button, Export Current Month/Full History, Import Month/History, Persistent Storage request and status, full Undo/Redo covering all actions (10-deep, persisted), sticky header while scrolling |
+| v4.3.1 | Bug fix — service worker registered with updateViaCache: 'none' and forced update() call to fix update prompts not firing reliably due to browser HTTP caching of sw.js |
 
 ---
 

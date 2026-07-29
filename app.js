@@ -1,11 +1,13 @@
-const CACHE_NAME = 'budget-app-v4.3';
+// ── Config ───────────────────────────────────────────────────────────────────
+const CACHE_NAME = 'budget-app-v4.3.1';
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
-const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i);
+const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i); // current year + 4 ahead
 
-const INCOME_COLOUR = '#e5e5ea';
-const UNDO_LIMIT = 10;
+const INCOME_COLOUR = '#e5e5ea'; // Income's default fixed colour, independently selectable from expense palette
+const UNDO_LIMIT = 10; // maximum undo/redo steps retained
 
+// 16-colour palette used for expense category headers and pie chart slices
 const PALETTE = [
   '#FF6B6B', '#2ECC71', '#3498DB', '#9B59B6',
   '#FF9F43', '#1ABC9C', '#FF6EB4', '#F39C12',
@@ -13,6 +15,7 @@ const PALETTE = [
   '#6D9E73', '#A0522D', '#708090', '#F1C40F'
 ];
 
+// Default category set used when a month has no saved data yet
 const DEFAULT_CATEGORIES = [
   { name: 'Income',        colour: INCOME_COLOUR, isIncome: true,  rows: [{ expense: '', cost: '', paid: false }] },
   { name: 'Tithes',        colour: PALETTE[0],    isIncome: false, rows: [{ expense: '', cost: '', paid: false }] },
@@ -28,8 +31,10 @@ let currentYear  = CURRENT_YEAR;
 let currentMonth = new Date().getMonth();
 
 // ── Service Worker ──────────────────────────────────────────────────────────
+// updateViaCache: 'none' prevents the browser's HTTP cache from serving a stale
+// sw.js file, which was previously blocking update detection on iOS Safari
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').then(reg => {
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
     reg.addEventListener('updatefound', () => {
       const nw = reg.installing;
       nw.addEventListener('statechange', () => {
@@ -40,9 +45,13 @@ if ('serviceWorker' in navigator) {
         }
       });
     });
+    // Force an immediate update check right after registration
+    reg.update();
   });
 }
 
+// Re-check for updates every time the app becomes visible again
+// (e.g. switching back from another app on iPhone)
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     navigator.serviceWorker.getRegistration().then(reg => { if (reg) reg.update(); });
@@ -50,6 +59,8 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ── Persistent Storage ──────────────────────────────────────────────────────
+// Requests that the browser NOT automatically clear this site's storage
+// under low-disk-space conditions. Does not protect against manual clearing.
 function requestPersistentStorage() {
   if (navigator.storage && navigator.storage.persist) {
     return navigator.storage.persist();
@@ -64,7 +75,7 @@ function checkPersistentStorage() {
   return Promise.resolve(false);
 }
 
-// Silently request on load
+// Silently request on every load — cheap no-op if already granted
 requestPersistentStorage();
 
 // ── Storage Helpers ─────────────────────────────────────────────────────────
@@ -84,6 +95,7 @@ function isPastMonth(year, month) {
   return year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth());
 }
 
+// Returns the next unused palette colour, cycling once all are taken
 function getNextColour(data) {
   const usedColours = data.map(c => c.colour);
   for (let i = 0; i < PALETTE.length; i++) {
@@ -92,11 +104,17 @@ function getNextColour(data) {
   return PALETTE[data.length % PALETTE.length];
 }
 
+// Identifies which localStorage keys belong to budget data (used by
+// undo/redo snapshotting and export/import so we never touch unrelated keys)
 function isRelevantKey(key) {
   return key.startsWith('budget_') || key.startsWith('protected_');
 }
 
 // ── Undo / Redo ──────────────────────────────────────────────────────────────
+// Snapshot-based undo system — captures the entire relevant localStorage state
+// before every mutating action, rather than tracking diffs. Simpler and more
+// reliable at the cost of slightly larger stored snapshots.
+
 function getUndoStack() {
   const raw = localStorage.getItem('__undoStack');
   return raw ? JSON.parse(raw) : [];
@@ -112,6 +130,7 @@ function setRedoStack(stack) {
   localStorage.setItem('__redoStack', JSON.stringify(stack));
 }
 
+// Captures every budget/protection key currently in localStorage
 function snapshotState() {
   const snap = {};
   for (let i = 0; i < localStorage.length; i++) {
@@ -121,27 +140,28 @@ function snapshotState() {
   return snap;
 }
 
+// Wipes all current budget/protection keys and replaces them with a snapshot
 function restoreState(snapshot) {
-  // Clear existing relevant keys
   const toRemove = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     if (isRelevantKey(key)) toRemove.push(key);
   }
   toRemove.forEach(k => localStorage.removeItem(k));
-  // Restore snapshot
   Object.keys(snapshot).forEach(k => localStorage.setItem(k, snapshot[k]));
 }
 
-// Call BEFORE any mutation
+// Must be called BEFORE a mutation happens — records the state as it was
+// immediately prior to the action about to be performed
 function recordUndo(description) {
   const stack = getUndoStack();
   stack.push({ desc: description, snapshot: snapshotState() });
-  while (stack.length > UNDO_LIMIT) stack.shift();
+  while (stack.length > UNDO_LIMIT) stack.shift(); // cap at UNDO_LIMIT, drop oldest
   setUndoStack(stack);
-  setRedoStack([]); // new action clears redo
+  setRedoStack([]); // any new action invalidates the redo stack (standard behaviour)
 }
 
+// Wraps a mutating function with automatic undo recording
 function withUndo(description, mutateFn) {
   recordUndo(description);
   mutateFn();
@@ -153,6 +173,7 @@ function undoLastAction() {
   const entry = undoStack.pop();
   setUndoStack(undoStack);
 
+  // Push current state onto redo stack before restoring the older snapshot
   const redoStack = getRedoStack();
   redoStack.push({ desc: entry.desc, snapshot: snapshotState() });
   while (redoStack.length > UNDO_LIMIT) redoStack.shift();
@@ -172,6 +193,7 @@ function redoLastAction() {
   const entry = redoStack.pop();
   setRedoStack(redoStack);
 
+  // Push current state back onto undo stack before reapplying
   const undoStack = getUndoStack();
   undoStack.push({ desc: entry.desc, snapshot: snapshotState() });
   while (undoStack.length > UNDO_LIMIT) undoStack.shift();
@@ -190,6 +212,9 @@ function loadData(year, month) {
   const raw = localStorage.getItem(storageKey(year, month));
   if (raw) {
     const parsed = JSON.parse(raw);
+    // Enforce isIncome strictly by index 0 — protects against legacy saved
+    // data (pre-v4.0) that never had this flag, which caused Income to be
+    // incorrectly treated as an expense
     return parsed.map((cat, idx) => ({
       ...cat,
       isIncome: idx === 0,
@@ -201,18 +226,21 @@ function loadData(year, month) {
 
 function saveData(year, month, data) {
   localStorage.setItem(storageKey(year, month), JSON.stringify(data));
+  // Any manual save automatically protects the month from being
+  // overwritten by Set as Template propagation
   setProtected(year, month, true);
   renderMonthTabs();
   renderActionBar();
 }
 
-// ── Template ────────────────────────────────────────────────────────────────
+// ── Template Propagation ─────────────────────────────────────────────────────
 function setAsTemplate() {
   if (!confirm(`Copy ${MONTHS[currentMonth]} ${currentYear} to all unprotected following months?`)) return;
   withUndo(`Set as Template from ${MONTHS[currentMonth]} ${currentYear}`, () => {
     const data = loadData(currentYear, currentMonth);
     let count = 0;
 
+    // Remaining months in the current year
     for (let m = currentMonth + 1; m < 12; m++) {
       if (!isProtected(currentYear, m)) {
         localStorage.setItem(storageKey(currentYear, m), JSON.stringify(
@@ -221,6 +249,7 @@ function setAsTemplate() {
         count++;
       }
     }
+    // All months in all future years — enables multi-year roll forward
     for (let y = currentYear + 1; y <= CURRENT_YEAR + 4; y++) {
       for (let m = 0; m < 12; m++) {
         if (!isProtected(y, m)) {
@@ -245,7 +274,7 @@ function toggleProtection() {
   });
 }
 
-// ── Bottom Sheet ─────────────────────────────────────────────────────────────
+// ── Bottom Sheet (shared popup component) ────────────────────────────────────
 function openSheet(html) {
   document.getElementById('bottomSheet').innerHTML = html;
   document.getElementById('bottomSheet').classList.add('open');
@@ -258,6 +287,7 @@ function closeSheet() {
 }
 
 // ── Main Menu ────────────────────────────────────────────────────────────────
+// Triggered by tapping the app name/icon in the header
 function openMainMenu() {
   const undoCount = getUndoStack().length;
   const redoCount = getRedoStack().length;
@@ -314,6 +344,7 @@ function openExportMenu() {
   openSheet(html);
 }
 
+// Triggers a browser file download containing the given object as JSON
 function downloadJSON(filename, obj) {
   const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
@@ -341,6 +372,8 @@ function exportCurrentMonth() {
   closeSheet();
 }
 
+// Exports every saved month + protection flag across all years.
+// Undo/redo history is intentionally excluded from history exports.
 function exportFullHistory() {
   const entries = {};
   for (let i = 0; i < localStorage.length; i++) {
@@ -359,7 +392,7 @@ function exportFullHistory() {
 }
 
 // ── Import Menu ──────────────────────────────────────────────────────────────
-let pendingImportType = null;
+let pendingImportType = null; // tracks which import flow triggered the file picker
 
 function openImportMenu() {
   const html = `
@@ -385,6 +418,7 @@ function triggerImport(type) {
   document.getElementById('importFileInput').click();
 }
 
+// Handles the file selected via the hidden <input type="file">
 function handleImportFile(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -415,7 +449,7 @@ function handleImportFile(event) {
           return;
         }
         const keyCount = Object.keys(parsed.entries).length;
-        if (!confirm(`Import full history? This will overwrite ${keyCount} saved month(s)/setting(s). This cannot be undone via Undo for entries beyond the last 10 changes.`)) return;
+        if (!confirm(`Import full history? This will overwrite ${keyCount} saved month(s)/setting(s).`)) return;
 
         withUndo('Imported full budget history', () => {
           Object.keys(parsed.entries).forEach(key => {
@@ -430,7 +464,7 @@ function handleImportFile(event) {
     } catch (err) {
       alert('Could not read this file. Please make sure it is a valid BudgetApp export.');
     }
-    event.target.value = '';
+    event.target.value = ''; // reset so the same file can be re-selected later
     pendingImportType = null;
   };
   reader.readAsText(file);
@@ -449,6 +483,7 @@ function openPermissionsMenu() {
   `;
   openSheet(html);
 
+  // Async status check — updates the row once resolved
   checkPersistentStorage().then(granted => {
     const row = document.getElementById('permissionStatusRow');
     if (!row) return;
@@ -471,15 +506,17 @@ function openPermissionsMenu() {
 
 function requestPermissionFromMenu() {
   requestPersistentStorage().then(() => {
-    openPermissionsMenu();
+    openPermissionsMenu(); // refresh the menu to reflect new status
   });
 }
 
-// ── Category Menu ────────────────────────────────────────────────────────────
+// ── Category Management Menu ─────────────────────────────────────────────────
 function openCategoryMenu(catIdx) {
   const data    = loadData(currentYear, currentMonth);
   const cat     = data[catIdx];
   const isInc   = cat.isIncome;
+  // Move Up is disabled for Income and for any category already at index 1
+  // (directly below Income) — prevents anything from landing on index 0
   const disableUp   = isInc || catIdx <= 1;
   const disableDown = isInc || catIdx === data.length - 1;
 
@@ -567,14 +604,18 @@ function sheetMove(catIdx, direction) {
   const data   = loadData(currentYear, currentMonth);
   const newIdx = catIdx + direction;
 
+  // Bounds check
   if (newIdx < 0 || newIdx >= data.length) { closeSheet(); return; }
+  // Income can never move
   if (data[catIdx].isIncome) { closeSheet(); return; }
+  // Hard block — no category may ever occupy index 0 (Income's permanent slot)
   if (newIdx === 0) { closeSheet(); return; }
 
   const name = data[catIdx].name;
   withUndo(`Moved "${name}" ${direction < 0 ? 'up' : 'down'}`, () => {
     const d = loadData(currentYear, currentMonth);
     [d[catIdx], d[newIdx]] = [d[newIdx], d[catIdx]];
+    // Final safety net — re-enforce isIncome strictly by index after any swap
     d.forEach((cat, idx) => { cat.isIncome = idx === 0; });
     saveData(currentYear, currentMonth, d);
     renderBudget();
@@ -586,7 +627,7 @@ function sheetDelete(catIdx) {
   const data = loadData(currentYear, currentMonth);
   if (data[catIdx].isIncome) { closeSheet(); return; }
   const name = data[catIdx].name;
-  if (!confirm(`Delete "${name}"? This cannot be undone via app, but Undo can restore it.`)) { closeSheet(); return; }
+  if (!confirm(`Delete "${name}"? You can restore it using Undo.`)) { closeSheet(); return; }
 
   withUndo(`Deleted category "${name}"`, () => {
     const d = loadData(currentYear, currentMonth);
@@ -609,7 +650,10 @@ function addCategory() {
   });
 }
 
-// ── Pie Chart ────────────────────────────────────────────────────────────────
+// ── Pie Chart (SVG donut) ─────────────────────────────────────────────────────
+// Renders a donut chart of expense categories as % of total expenses.
+// Income is always excluded. Returns an empty string if there is no
+// expense data yet, which hides the chart entirely.
 function renderChart(data) {
   const expenses = data.filter(c => !c.isIncome);
   const totals   = expenses.map(c => c.rows.reduce((s, r) => s + (parseFloat(r.cost) || 0), 0));
@@ -620,15 +664,15 @@ function renderChart(data) {
   const size   = 160;
   const cx     = size / 2;
   const cy     = size / 2;
-  const radius = 60;
-  const inner  = 30;
+  const radius = 60; // outer radius of donut
+  const inner  = 30; // inner radius — creates the "hole"
 
   let slices = '';
-  let angle  = -Math.PI / 2;
+  let angle  = -Math.PI / 2; // start at 12 o'clock
 
   expenses.forEach((cat, i) => {
     const pct = totals[i] / total;
-    if (pct === 0) return;
+    if (pct === 0) return; // skip categories with no spend
     const sweep = pct * 2 * Math.PI;
     const x1 = cx + radius * Math.cos(angle);
     const y1 = cy + radius * Math.sin(angle);
@@ -639,7 +683,7 @@ function renderChart(data) {
     const iy1 = cy + inner * Math.sin(angle - sweep);
     const ix2 = cx + inner * Math.cos(angle);
     const iy2 = cy + inner * Math.sin(angle);
-    const large = sweep > Math.PI ? 1 : 0;
+    const large = sweep > Math.PI ? 1 : 0; // SVG arc large-sweep flag
 
     slices += `<path d="
       M ${ix1} ${iy1}
@@ -670,11 +714,12 @@ function renderChart(data) {
     </div>`;
 }
 
-// ── Formatting ───────────────────────────────────────────────────────────────
+// ── Formatting & Calculations ────────────────────────────────────────────────
 function fmt(val) {
   return 'R ' + Math.abs(val).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Calculates all summary bar figures for the currently loaded month
 function calcSummary(data) {
   let income = 0, totalExpenses = 0, paidExpenses = 0;
   data.forEach(cat => {
@@ -688,7 +733,13 @@ function calcSummary(data) {
       }
     });
   });
-  return { income, totalExpenses, paidExpenses, balance: income - totalExpenses, inAccount: income - paidExpenses };
+  return {
+    income,
+    totalExpenses,
+    paidExpenses,
+    balance: income - totalExpenses,
+    inAccount: income - paidExpenses // Income minus only PAID expenses
+  };
 }
 
 // ── Render ───────────────────────────────────────────────────────────────────
@@ -739,6 +790,7 @@ function renderBudget() {
   const { income, totalExpenses, paidExpenses, balance, inAccount } = calcSummary(data);
   const balanceCls = balance >= 0 ? 'positive' : 'negative';
 
+  // Summary bar
   let html = `
     <div class="summary-bar">
       <div class="summary-item">
@@ -759,6 +811,7 @@ function renderBudget() {
       </div>
     </div>`;
 
+  // Running remaining balance, deducted category by category, row by row
   let runningRemaining = income;
 
   data.forEach((cat, catIdx) => {
@@ -789,6 +842,7 @@ function renderBudget() {
       let remDisplay, remCls;
 
       if (cat.isIncome) {
+        // Income rows simply display their own value as "remaining"
         remDisplay = fmt(cost);
         remCls     = 'positive';
       } else {
@@ -823,17 +877,21 @@ function renderBudget() {
       </div>`;
     });
 
+    // Reset running remaining back to income once Income category is done
     if (cat.isIncome) runningRemaining = income;
 
     html += `<button class="add-btn" onclick="addRow(${catIdx})">+ Add row</button></div>`;
   });
 
+  // Pie chart — hidden automatically by renderChart() if no expense data exists
   html += renderChart(data);
+
   html += `<button class="add-category-btn" onclick="addCategory()">+ Add Category</button>`;
 
   document.getElementById('budgetContent').innerHTML = html;
 }
 
+// ── Row Mutations ────────────────────────────────────────────────────────────
 function updateRow(catIdx, rowIdx, field, value) {
   const data = loadData(currentYear, currentMonth);
   const expenseName = data[catIdx].rows[rowIdx].expense || '(unnamed)';
@@ -860,6 +918,7 @@ function addRow(catIdx) {
 
 function removeRow(catIdx, rowIdx) {
   const data = loadData(currentYear, currentMonth);
+  // Never allow the last row in a category to be removed
   if (data[catIdx].rows.length > 1) {
     const row = data[catIdx].rows[rowIdx];
     const desc = `Removed row "${row.expense || '(unnamed)'}" (${fmt(parseFloat(row.cost) || 0)}) from "${data[catIdx].name}"`;
@@ -872,4 +931,5 @@ function removeRow(catIdx, rowIdx) {
   }
 }
 
+// ── Boot ─────────────────────────────────────────────────────────────────────
 renderApp();
