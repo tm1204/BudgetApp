@@ -27,6 +27,8 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 - **Sticky header** — app title, year selector, and month tabs remain visible while scrolling
 - **Year selector** — top right, covers current year + 4 years ahead
 - **Monthly tabs** — one tab per month, January through December
+- **Remembers last viewed month** — reopening the app (e.g. after being minimized) returns you to whichever month/year you last had open, rather than resetting to today's month
+- **Auto-scroll to current tab** — the active month tab is automatically scrolled into view, aligned to the left edge of the month scroll bar
 - **Summary bar** — always-visible totals for Income, Total Expenses, Balance and In Account
 - **In Account** — Income minus only paid expenses, giving a real-time view of actual cash position
 
@@ -69,6 +71,7 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
 - **Permissions** — view and request Persistent Storage status
 - **Undo** — reverts the most recent action, shows count of available undos
 - **Redo** — reapplies the most recently undone action, shows count of available redos
+- Export, Import, Permissions, Undo, Redo, and Rename now use minimal bold line-style SVG icons for a cleaner, more modern look, distinct from the app's colourful rounded icon
 
 ### 📤 Export / Import
 - **Export Current Month As Template** — downloads a JSON file containing the current month's categories, rows, and protection status
@@ -125,8 +128,9 @@ All budget data is stored in the browser's localStorage — no server, no accoun
 | protected_{year}_{month} | Protection flag for that month |
 | __undoStack | Last 10 undo snapshots |
 | __redoStack | Last 10 redo snapshots |
+| lastViewedMonth | The last month/year tab that was open — used to restore your place when reopening the app |
 
-⚠️ Clearing Safari's website data will erase all budget entries and undo/redo history. Use Export regularly for a true backup, and grant Persistent Storage permission via the Permissions menu to reduce automatic data loss.
+⚠️ Clearing Safari's website data will erase all budget entries, undo/redo history, and the remembered last-viewed month. Use Export regularly for a true backup, and grant Persistent Storage permission via the Permissions menu to reduce automatic data loss.
 
 ---
 
@@ -170,19 +174,25 @@ New categories automatically cycle through the palette in order, skipping colour
 
 ---
 
+## 🖼️ Menu Icon Style
+
+Export, Import, Permissions, Undo, Redo, and Rename use minimal, bold, black line-style inline SVG icons — a deliberately different visual language from the app's colourful rounded main icon, keeping the day-to-day interface clean and modern. Change Colour, Move Up, Move Down, and Delete remain as simple emoji/text glyphs, with Delete kept in red as a destructive-action cue.
+
+---
+
 ## 🚀 Versioning & Updates
 
 When deploying a new version, update the cache name in both sw.js and app.js:
 
-    const CACHE_NAME = 'budget-app-v4.3.1';
+    const CACHE_NAME = 'budget-app-v4.4';
 
 Change this string with every release. This triggers the service worker to clear old caches and prompt users to refresh. Recommended versioning convention:
 
 | Change Type | Example |
 |---|---|
 | Major new features | budget-app-v5.0 |
-| Minor additions | budget-app-v4.4 |
-| Bug fixes | budget-app-v4.3.1 |
+| Minor additions | budget-app-v4.5 |
+| Bug fixes | budget-app-v4.4.1 |
 
 ---
 
@@ -202,6 +212,7 @@ Change this string with every release. This triggers the service worker to clear
 | v4.2 | Bug fix — Move Up disabled at position 2, hard block preventing any category from occupying Income's position 1, isIncome re-enforced after every category move |
 | v4.3 | Main menu system (Export, Import, Permissions, Undo, Redo) accessed via app name button, Export Current Month/Full History, Import Month/History, Persistent Storage request and status, full Undo/Redo covering all actions (10-deep, persisted), sticky header while scrolling |
 | v4.3.1 | Bug fix — service worker registered with updateViaCache: 'none' and forced update() call to fix update prompts not firing reliably due to browser HTTP caching of sw.js |
+| v4.4 | Minimal bold line-style SVG icons for Export, Import, Permissions, Undo, Redo, and Rename; app now remembers and restores the last viewed month/year on reopen; active month tab automatically scrolls to the left edge of the month scroll bar |
 
 ---
 
@@ -214,5 +225,5 @@ Change this string with every release. This triggers the service worker to clear
 - Service Worker API
 - Web App Manifest (PWA)
 - Storage Manager API (persistent storage)
-- SVG (pie chart rendering)
+- SVG (pie chart rendering, minimal line icons)
 - Blob / File API (export and import)

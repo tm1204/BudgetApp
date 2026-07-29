@@ -1,5 +1,5 @@
 // ── Config ───────────────────────────────────────────────────────────────────
-const CACHE_NAME = 'budget-app-v4.3.1';
+const CACHE_NAME = 'budget-app-v4.4';
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i); // current year + 4 ahead
@@ -29,6 +29,31 @@ const DEFAULT_CATEGORIES = [
 
 let currentYear  = CURRENT_YEAR;
 let currentMonth = new Date().getMonth();
+
+// Restore last viewed month/year if the app was previously opened —
+// keeps the user on whatever month they were looking at when they last
+// closed or minimized the app, rather than always resetting to "today"
+const savedView = loadLastViewedMonth();
+if (savedView && YEARS.includes(savedView.year) && savedView.month >= 0 && savedView.month <= 11) {
+  currentYear = savedView.year;
+  currentMonth = savedView.month;
+}
+
+// ── Minimal SVG Icon Set ─────────────────────────────────────────────────────
+// Bold, minimal line icons used in the main menu and category rename action,
+// matching the flat modern line-icon style requested for the app (distinct
+// from the colourful rounded app icon itself)
+const ICON_EXPORT = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10"/><path d="M8 7l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>`;
+
+const ICON_IMPORT = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10"/><path d="M8 9l4 4 4-4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>`;
+
+const ICON_PERMISSIONS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V7a4 4 0 0 1 7.5-2"/><rect x="5" y="11" width="9" height="8" rx="1.5"/><path d="M7 15l1.5 1.5L11 14"/></svg>`;
+
+const ICON_UNDO = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a5 5 0 0 1 0 10H11"/></svg>`;
+
+const ICON_REDO = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H10a5 5 0 0 0 0 10h3"/></svg>`;
+
+const ICON_RENAME = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`;
 
 // ── Service Worker ──────────────────────────────────────────────────────────
 // updateViaCache: 'none' prevents the browser's HTTP cache from serving a stale
@@ -105,9 +130,24 @@ function getNextColour(data) {
 }
 
 // Identifies which localStorage keys belong to budget data (used by
-// undo/redo snapshotting and export/import so we never touch unrelated keys)
+// undo/redo snapshotting and export/import so we never touch unrelated keys).
+// Note: lastViewedMonth is intentionally NOT matched here — it's a UI
+// preference, not budget data, so it's excluded from undo/redo and exports.
 function isRelevantKey(key) {
   return key.startsWith('budget_') || key.startsWith('protected_');
+}
+
+// ── Last Viewed Month Persistence ────────────────────────────────────────────
+// Remembers whichever month/year tab was last open so that re-opening the
+// app (e.g. from the iPhone home screen after being minimized) returns the
+// user to where they left off, rather than resetting to today's month.
+function saveLastViewedMonth(year, month) {
+  localStorage.setItem('lastViewedMonth', JSON.stringify({ year, month }));
+}
+
+function loadLastViewedMonth() {
+  const raw = localStorage.getItem('lastViewedMonth');
+  return raw ? JSON.parse(raw) : null;
 }
 
 // ── Undo / Redo ──────────────────────────────────────────────────────────────
@@ -297,26 +337,26 @@ function openMainMenu() {
     <div class="sheet-title">BudgetApp Menu</div>
 
     <button class="sheet-option" onclick="openExportMenu()">
-      <span class="sheet-option-icon">📤</span> Export
+      <span class="sheet-option-icon">${ICON_EXPORT}</span> Export
     </button>
 
     <button class="sheet-option" onclick="openImportMenu()">
-      <span class="sheet-option-icon">📥</span> Import
+      <span class="sheet-option-icon">${ICON_IMPORT}</span> Import
     </button>
 
     <button class="sheet-option" onclick="openPermissionsMenu()">
-      <span class="sheet-option-icon">🔐</span> Permissions
+      <span class="sheet-option-icon">${ICON_PERMISSIONS}</span> Permissions
     </button>
 
     <button class="sheet-option ${undoCount === 0 ? 'disabled' : ''}"
       onclick="${undoCount === 0 ? '' : 'undoLastAction()'}">
-      <span class="sheet-option-icon">↩️</span> Undo
+      <span class="sheet-option-icon">${ICON_UNDO}</span> Undo
       <span class="sheet-option-sub">${undoCount > 0 ? undoCount : ''}</span>
     </button>
 
     <button class="sheet-option ${redoCount === 0 ? 'disabled' : ''}"
       onclick="${redoCount === 0 ? '' : 'redoLastAction()'}">
-      <span class="sheet-option-icon">↪️</span> Redo
+      <span class="sheet-option-icon">${ICON_REDO}</span> Redo
       <span class="sheet-option-sub">${redoCount > 0 ? redoCount : ''}</span>
     </button>
 
@@ -526,7 +566,7 @@ function openCategoryMenu(catIdx) {
 
     <button class="sheet-option ${isInc ? 'disabled' : ''}"
       onclick="${isInc ? '' : `sheetRename(${catIdx})`}">
-      <span class="sheet-option-icon">✏️</span> Rename
+      <span class="sheet-option-icon">${ICON_RENAME}</span> Rename
     </button>
 
     <button class="sheet-option" onclick="sheetColour(${catIdx})">
@@ -755,7 +795,13 @@ function renderYearSelect() {
   sel.innerHTML = YEARS.map(y =>
     `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`
   ).join('');
-  sel.onchange = () => { currentYear = parseInt(sel.value); renderMonthTabs(); renderBudget(); renderActionBar(); };
+  sel.onchange = () => {
+    currentYear = parseInt(sel.value);
+    saveLastViewedMonth(currentYear, currentMonth); // remember new year selection too
+    renderMonthTabs();
+    renderBudget();
+    renderActionBar();
+  };
 }
 
 function renderMonthTabs() {
@@ -766,10 +812,18 @@ function renderMonthTabs() {
       ${m}${locked ? ' 🔒' : ''}
     </button>`;
   }).join('');
+
+  // Scroll the active/current month tab into view, aligned to the left edge,
+  // so it appears as the first visible tab in the horizontal scroll area
+  const activeBtn = tabs.querySelector('button.active');
+  if (activeBtn) {
+    activeBtn.scrollIntoView({ behavior: 'auto', inline: 'start', block: 'nearest' });
+  }
 }
 
 function switchMonth(m) {
   currentMonth = m;
+  saveLastViewedMonth(currentYear, currentMonth); // remember this as the last viewed month
   renderMonthTabs();
   renderBudget();
   renderActionBar();

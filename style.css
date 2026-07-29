@@ -446,6 +446,14 @@ main { padding: 16px; }
 .sheet-option.destructive { color: #ff3b30; }
 
 .sheet-option-icon { font-size: 20px; width: 28px; text-align: center; }
+
+/* Ensures inline SVG icons (Export, Import, Permissions, Undo, Redo, Rename)
+   are centered and sized consistently within the fixed-width icon slot */
+.sheet-option-icon svg {
+  display: block;
+  margin: 0 auto;
+}
+
 .sheet-option-sub { margin-left: auto; font-size: 12px; color: #8e8e93; }
 
 /* Colour picker grid — 16 colour palette */
