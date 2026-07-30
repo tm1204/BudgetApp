@@ -30,7 +30,9 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 - **Remembers last viewed month** — reopening the app (e.g. after being minimized) returns you to whichever month/year you last had open, rather than resetting to today's month
 - **Auto-scroll to current tab** — the active month tab is automatically scrolled into view, aligned to the left edge of the month scroll bar
 - **Summary bar** — always-visible totals for Income, Total Expenses, Balance and In Account
-- **In Account** — Income minus only paid expenses, giving a real-time view of actual cash position
+- **In Account** — Income minus actual cash outflow:
+  - **Fully Paid** rows subtract full cost only when checked
+  - **Running Total** rows subtract the entered running total amount
 
 ### 🗂️ Categories
 - **8 default categories** — Income, Tithes, Home, Vehicles, Debits, Food, Fuel, Entertainment
@@ -43,11 +45,34 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 
 ### 📋 Rows
 - **Add rows** — per category via the "+ Add row" button
-- **Remove rows** — via the − button on each row
+- **Row actions menu** — each row now uses a **vertical ellipsis** menu instead of a direct remove button
+- **Remove Row** — available from the row menu
+- **Switch Row to Running Total** — available from the row menu
+- **Switch Row to Fully Paid** — available from the row menu
 - **Expense name** — free text input
 - **Cost** — numeric input
-- **Remaining** — auto-calculated running balance after each expense deducted from income
-- **Paid tickbox** — mark individual expenses as paid; affects the In Account total
+- **Remaining** — auto-calculated running balance after each row's effective budget impact is deducted from income
+- **Fully Paid mode** — row shows a checkbox in the Status column
+- **Running Total mode** — row shows a numeric running-total input in the Status column
+- **Over-budget visual warning** — running total text turns red when the entered running total exceeds the row's budgeted cost
+
+### 🧮 Running Total Logic
+Each row can operate in one of two modes:
+
+#### Fully Paid
+- Default mode for all new rows
+- Uses the checkbox behavior already present in the app
+- **Budget / Remaining impact** = budgeted cost
+- **In Account impact** = full cost only when checked
+
+#### Running Total
+- Switched on via row menu
+- Replaces the checkbox with a numeric input
+- **Budget / Remaining impact** = greater of:
+  - budgeted cost
+  - entered running total
+- **In Account impact** = entered running total amount
+- If running total exceeds budgeted cost, the input text turns red
 
 ### 🥧 Pie Chart
 - Donut-style chart rendered below the last category
@@ -58,7 +83,7 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 - Income excluded from chart
 
 ### 📅 Month Propagation
-- **Set as Template** button — bottom left — copies current month's data (names + costs, paid boxes reset) to all unprotected following months across all years
+- **Set as Template** button — bottom left — copies current month's data (names + costs, paid boxes reset, running totals reset) to all unprotected following months across all years
 - **Protected toggle** button — bottom right — manually lock or unlock a month
 - **Auto-protect** — any manual edit to a month automatically protects it from being overwritten
 - **🔒 indicator** — protected months show a lock icon on the month tab
@@ -71,7 +96,7 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
 - **Permissions** — view and request Persistent Storage status
 - **Undo** — reverts the most recent action, shows count of available undos
 - **Redo** — reapplies the most recently undone action, shows count of available redos
-- Export, Import, Permissions, Undo, Redo, and Rename now use minimal bold line-style SVG icons for a cleaner, more modern look, distinct from the app's colourful rounded icon
+- Export, Import, Permissions, Undo, Redo, and Rename use minimal bold line-style SVG icons for a cleaner, more modern look, distinct from the app's colourful rounded icon
 
 ### 📤 Export / Import
 - **Export Current Month As Template** — downloads a JSON file containing the current month's categories, rows, and protection status
@@ -81,7 +106,7 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
 - All imports are recorded on the Undo stack
 
 ### ↩️ Undo / Redo
-- Covers all mutating actions: row edits, add/remove row, category rename/colour/move/delete/add, Set as Template, protection toggle, and imports
+- Covers all mutating actions: row edits, add/remove row, row mode switches, category rename/colour/move/delete/add, Set as Template, protection toggle, and imports
 - Stores the last **10 actions**
 - Undo stack is cleared of redo history whenever a new action is performed after an undo (standard undo/redo behaviour)
 - Persists across page refresh — stored in localStorage
@@ -96,6 +121,7 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
 ### 🔄 Auto-Update
 - Service worker caches all app assets for offline use
 - `updateViaCache: 'none'` ensures the browser's HTTP cache never serves a stale service worker file
+- `version.json` is used as the explicit app-version source of truth for update detection
 - Checks for updates every time the app becomes visible
 - Prompts user to refresh when a new version is available
 
@@ -108,6 +134,7 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
     ├── style.css           # All styling — layout, components, sheets, sticky positioning
     ├── app.js              # All app logic, data management, undo/redo, export/import, rendering
     ├── sw.js               # Service worker — caching and update detection
+    ├── version.json        # Single source of truth for app version detection
     ├── manifest.json       # PWA manifest — icons, display mode, theme
     ├── README.md           # This file
     └── Icons/
@@ -182,17 +209,28 @@ Export, Import, Permissions, Undo, Redo, and Rename use minimal, bold, black lin
 
 ## 🚀 Versioning & Updates
 
-When deploying a new version, update the cache name in both sw.js and app.js:
+When deploying a new version, update:
 
-    const CACHE_NAME = 'budget-app-v4.4';
+1. `sw.js`
+2. `version.json`
 
-Change this string with every release. This triggers the service worker to clear old caches and prompt users to refresh. Recommended versioning convention:
+Example:
+
+    const CACHE_NAME = 'budget-app-v5';
+
+and
+
+    {
+      "version": "v5"
+    }
+
+This triggers the service worker to clear old caches and lets the app detect new releases via `version.json`. Recommended versioning convention:
 
 | Change Type | Example |
 |---|---|
-| Major new features | budget-app-v5.0 |
-| Minor additions | budget-app-v4.5 |
-| Bug fixes | budget-app-v4.4.1 |
+| Major new features | budget-app-v6 |
+| Minor additions | budget-app-v5.1 |
+| Bug fixes | budget-app-v5.0.1 |
 
 ---
 
@@ -213,7 +251,8 @@ Change this string with every release. This triggers the service worker to clear
 | v4.3 | Main menu system (Export, Import, Permissions, Undo, Redo) accessed via app name button, Export Current Month/Full History, Import Month/History, Persistent Storage request and status, full Undo/Redo covering all actions (10-deep, persisted), sticky header while scrolling |
 | v4.3.1 | Bug fix — service worker registered with updateViaCache: 'none' and forced update() call to fix update prompts not firing reliably due to browser HTTP caching of sw.js |
 | v4.4 | Minimal bold line-style SVG icons for Export, Import, Permissions, Undo, Redo, and Rename; app now remembers and restores the last viewed month/year on reopen; active month tab automatically scrolls to the left edge of the month scroll bar |
-| v4.4.1 | 	Explicit app-version detection via version.json; version removed from app.js config and kept only in sw.js and version.json; update check now runs on load and resume via version.json; active month tab alignment centralized and re-run with deferred timing on load, month/year change, and app resume  |
+| v4.4.1 | Explicit app-version detection via `version.json`; version removed from `app.js` config and kept only in `sw.js` and `version.json`; update check now runs on load and resume via `version.json`; active month tab alignment centralized and re-run with deferred timing on load, month/year change, and app resume |
+| v5 | Row-level vertical ellipsis menu replaces remove-row button; each row can now switch between Fully Paid and Running Total modes; Running Total rows replace the checkbox with a numeric input; In Account now subtracts running totals directly for Running Total rows; Remaining / budget impact for Running Total rows uses the greater of budgeted cost and running total; running total text turns red when it exceeds the allocated budget |
 
 ---
 
@@ -228,3 +267,4 @@ Change this string with every release. This triggers the service worker to clear
 - Storage Manager API (persistent storage)
 - SVG (pie chart rendering, minimal line icons)
 - Blob / File API (export and import)
+- Fetch API (`version.json` update detection)

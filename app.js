@@ -16,14 +16,14 @@ const PALETTE = [
 
 // Default category set used when a month has no saved data yet
 const DEFAULT_CATEGORIES = [
-  { name: 'Income',        colour: INCOME_COLOUR, isIncome: true,  rows: [{ expense: '', cost: '', paid: false }] },
-  { name: 'Tithes',        colour: PALETTE[0],    isIncome: false, rows: [{ expense: '', cost: '', paid: false }] },
-  { name: 'Home',          colour: PALETTE[1],    isIncome: false, rows: [{ expense: '', cost: '', paid: false }] },
-  { name: 'Vehicles',      colour: PALETTE[2],    isIncome: false, rows: [{ expense: '', cost: '', paid: false }] },
-  { name: 'Debits',        colour: PALETTE[3],    isIncome: false, rows: [{ expense: '', cost: '', paid: false }] },
-  { name: 'Food',          colour: PALETTE[4],    isIncome: false, rows: [{ expense: '', cost: '', paid: false }] },
-  { name: 'Fuel',          colour: PALETTE[5],    isIncome: false, rows: [{ expense: '', cost: '', paid: false }] },
-  { name: 'Entertainment', colour: PALETTE[6],    isIncome: false, rows: [{ expense: '', cost: '', paid: false }] }
+  { name: 'Income',        colour: INCOME_COLOUR, isIncome: true,  rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+  { name: 'Tithes',        colour: PALETTE[0],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+  { name: 'Home',          colour: PALETTE[1],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+  { name: 'Vehicles',      colour: PALETTE[2],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+  { name: 'Debits',        colour: PALETTE[3],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+  { name: 'Food',          colour: PALETTE[4],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+  { name: 'Fuel',          colour: PALETTE[5],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+  { name: 'Entertainment', colour: PALETTE[6],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
 ];
 
 let currentYear  = CURRENT_YEAR;
@@ -286,6 +286,16 @@ function redoLastAction() {
 }
 
 // ── Data ────────────────────────────────────────────────────────────────────
+function normalizeRow(row) {
+  return {
+    expense: row.expense ?? '',
+    cost: row.cost ?? '',
+    paid: row.paid ?? false,
+    mode: row.mode ?? 'fully-paid',
+    runningTotal: row.runningTotal ?? ''
+  };
+}
+
 function loadData(year, month) {
   const raw = localStorage.getItem(storageKey(year, month));
   if (raw) {
@@ -296,7 +306,8 @@ function loadData(year, month) {
     return parsed.map((cat, idx) => ({
       ...cat,
       isIncome: idx === 0,
-      colour: cat.colour || (idx === 0 ? INCOME_COLOUR : PALETTE[idx % PALETTE.length])
+      colour: cat.colour || (idx === 0 ? INCOME_COLOUR : PALETTE[idx % PALETTE.length]),
+      rows: (cat.rows || []).map(normalizeRow)
     }));
   }
   return DEFAULT_CATEGORIES.map(c => ({ ...c, rows: c.rows.map(r => ({ ...r })) }));
@@ -322,7 +333,16 @@ function setAsTemplate() {
     for (let m = currentMonth + 1; m < 12; m++) {
       if (!isProtected(currentYear, m)) {
         localStorage.setItem(storageKey(currentYear, m), JSON.stringify(
-          data.map(cat => ({ ...cat, rows: cat.rows.map(r => ({ expense: r.expense, cost: r.cost, paid: false })) }))
+          data.map(cat => ({
+            ...cat,
+            rows: cat.rows.map(r => ({
+              expense: r.expense,
+              cost: r.cost,
+              paid: false,
+              mode: r.mode ?? 'fully-paid',
+              runningTotal: ''
+            }))
+          }))
         ));
         count++;
       }
@@ -332,7 +352,16 @@ function setAsTemplate() {
       for (let m = 0; m < 12; m++) {
         if (!isProtected(y, m)) {
           localStorage.setItem(storageKey(y, m), JSON.stringify(
-            data.map(cat => ({ ...cat, rows: cat.rows.map(r => ({ expense: r.expense, cost: r.cost, paid: false })) }))
+            data.map(cat => ({
+              ...cat,
+              rows: cat.rows.map(r => ({
+                expense: r.expense,
+                cost: r.cost,
+                paid: false,
+                mode: r.mode ?? 'fully-paid',
+                runningTotal: ''
+              }))
+            }))
           ));
           count++;
         }
@@ -722,10 +751,68 @@ function addCategory() {
   withUndo(`Added category "${name.trim()}"`, () => {
     const data   = loadData(currentYear, currentMonth);
     const colour = getNextColour(data);
-    data.push({ name: name.trim(), colour, isIncome: false, rows: [{ expense: '', cost: '', paid: false }] });
+    data.push({ name: name.trim(), colour, isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] });
     saveData(currentYear, currentMonth, data);
     renderBudget();
   });
+}
+
+// ── Row Menu ─────────────────────────────────────────────────────────────────
+// Replaces the inline remove-row button with a vertical ellipsis menu.
+// Each row can switch between:
+// - fully-paid: checkbox in the 4th column
+// - running-total: numeric input in the 4th column
+function openRowMenu(catIdx, rowIdx) {
+  const data = loadData(currentYear, currentMonth);
+  const row = data[catIdx].rows[rowIdx];
+  const mode = row.mode ?? 'fully-paid';
+  const switchLabel = mode === 'running-total'
+    ? 'Switch Row to Fully Paid'
+    : 'Switch Row to Running Total';
+
+  const html = `
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Row Options</div>
+
+    <button class="sheet-option" onclick="removeRow(${catIdx},${rowIdx})">
+      <span class="sheet-option-icon">🗑️</span> Remove Row
+    </button>
+
+    <button class="sheet-option" onclick="switchRowMode(${catIdx},${rowIdx})">
+      <span class="sheet-option-icon">⇄</span> ${switchLabel}
+    </button>
+
+    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
+  `;
+  openSheet(html);
+}
+
+function switchRowMode(catIdx, rowIdx) {
+  const data = loadData(currentYear, currentMonth);
+  const row = data[catIdx].rows[rowIdx];
+  const fromMode = row.mode ?? 'fully-paid';
+  const toMode = fromMode === 'running-total' ? 'fully-paid' : 'running-total';
+  const rowName = row.expense || '(unnamed)';
+
+  withUndo(`Switched row "${rowName}" to ${toMode === 'running-total' ? 'Running Total' : 'Fully Paid'}`, () => {
+    const d = loadData(currentYear, currentMonth);
+    const target = d[catIdx].rows[rowIdx];
+    target.mode = toMode;
+
+    if (toMode === 'running-total') {
+      target.paid = false;
+      if (target.runningTotal === undefined || target.runningTotal === null) {
+        target.runningTotal = '';
+      }
+    } else {
+      target.runningTotal = '';
+    }
+
+    saveData(currentYear, currentMonth, d);
+    renderBudget();
+  });
+
+  closeSheet();
 }
 
 // ── Pie Chart (SVG donut) ─────────────────────────────────────────────────────
@@ -797,9 +884,34 @@ function fmt(val) {
   return 'R ' + Math.abs(val).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Calculates the amount a row should deduct from the overall budget running
+// balance / Remaining column.
+// - fully-paid row -> uses budgeted cost
+// - running-total row -> uses greater of budgeted cost and running total
+function getBudgetEffect(row) {
+  const cost = parseFloat(row.cost) || 0;
+  const runningTotal = parseFloat(row.runningTotal) || 0;
+  if ((row.mode ?? 'fully-paid') === 'running-total') {
+    return Math.max(cost, runningTotal);
+  }
+  return cost;
+}
+
+// Calculates the amount a row should deduct from In Account.
+// - fully-paid row -> subtract full cost only when checkbox is ticked
+// - running-total row -> subtract entered running total directly
+function getInAccountEffect(row) {
+  const cost = parseFloat(row.cost) || 0;
+  const runningTotal = parseFloat(row.runningTotal) || 0;
+  if ((row.mode ?? 'fully-paid') === 'running-total') {
+    return runningTotal;
+  }
+  return row.paid ? cost : 0;
+}
+
 // Calculates all summary bar figures for the currently loaded month
 function calcSummary(data) {
-  let income = 0, totalExpenses = 0, paidExpenses = 0;
+  let income = 0, totalExpenses = 0, actualSpent = 0;
   data.forEach(cat => {
     cat.rows.forEach(r => {
       const val = parseFloat(r.cost) || 0;
@@ -807,16 +919,16 @@ function calcSummary(data) {
         income += val;
       } else {
         totalExpenses += val;
-        if (r.paid) paidExpenses += val;
+        actualSpent += getInAccountEffect(r);
       }
     });
   });
   return {
     income,
     totalExpenses,
-    paidExpenses,
+    actualSpent,
     balance: income - totalExpenses,
-    inAccount: income - paidExpenses // Income minus only PAID expenses
+    inAccount: income - actualSpent
   };
 }
 
@@ -892,7 +1004,7 @@ function renderActionBar() {
 
 function renderBudget() {
   const data = loadData(currentYear, currentMonth);
-  const { income, totalExpenses, paidExpenses, balance, inAccount } = calcSummary(data);
+  const { income, totalExpenses, actualSpent, balance, inAccount } = calcSummary(data);
   const balanceCls = balance >= 0 ? 'positive' : 'negative';
 
   // Summary bar
@@ -938,12 +1050,16 @@ function renderBudget() {
         <div class="ch-expense">Expense</div>
         <div class="ch-cost">Cost</div>
         <div class="ch-remaining">Remaining</div>
-        <div class="ch-paid">Paid</div>
+        <div class="ch-paid">${cat.isIncome ? '' : 'Status'}</div>
         <div class="ch-remove"></div>
       </div>`;
 
     cat.rows.forEach((row, rowIdx) => {
       const cost = parseFloat(row.cost) || 0;
+      const mode = row.mode ?? 'fully-paid';
+      const runningTotal = parseFloat(row.runningTotal) || 0;
+      const budgetEffect = getBudgetEffect(row);
+
       let remDisplay, remCls;
 
       if (cat.isIncome) {
@@ -951,13 +1067,36 @@ function renderBudget() {
         remDisplay = fmt(cost);
         remCls     = 'positive';
       } else {
-        runningRemaining -= cost;
+        runningRemaining -= budgetEffect;
         remDisplay = (runningRemaining < 0 ? '-' : '') + fmt(runningRemaining);
         remCls     = runningRemaining >= 0 ? 'positive' : 'negative';
       }
 
       const checkedAttr = row.paid ? 'checked' : '';
       const safeExpense = row.expense.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+      let statusCell = '';
+      if (cat.isIncome) {
+        statusCell = `<div class="cell-paid"></div>`;
+      } else if (mode === 'running-total') {
+        const overBudget = runningTotal > cost;
+        statusCell = `
+          <div class="cell-paid">
+            <input
+              type="number"
+              class="running-total-input ${overBudget ? 'over-budget' : ''}"
+              placeholder="0.00"
+              value="${row.runningTotal}"
+              onchange="updateRow(${catIdx},${rowIdx},'runningTotal',this.value)"
+            />
+          </div>`;
+      } else {
+        statusCell = `
+          <div class="cell-paid">
+            <input type="checkbox" ${checkedAttr}
+              onchange="updateRow(${catIdx},${rowIdx},'paid',this.checked)" />
+          </div>`;
+      }
 
       html += `
       <div class="budget-row">
@@ -972,12 +1111,9 @@ function renderBudget() {
         <div class="cell-remaining">
           <span class="remaining ${remCls}">${remDisplay}</span>
         </div>
-        <div class="cell-paid">
-          <input type="checkbox" ${checkedAttr}
-            onchange="updateRow(${catIdx},${rowIdx},'paid',this.checked)" />
-        </div>
+        ${statusCell}
         <div class="cell-remove">
-          <button class="remove-btn" onclick="removeRow(${catIdx},${rowIdx})">−</button>
+          <button class="row-ellipsis-btn" onclick="openRowMenu(${catIdx},${rowIdx})">⋮</button>
         </div>
       </div>`;
     });
@@ -1000,7 +1136,11 @@ function renderBudget() {
 function updateRow(catIdx, rowIdx, field, value) {
   const data = loadData(currentYear, currentMonth);
   const expenseName = data[catIdx].rows[rowIdx].expense || '(unnamed)';
-  const fieldLabel = field === 'expense' ? 'name' : field === 'cost' ? 'cost' : 'paid status';
+  const fieldLabel =
+    field === 'expense' ? 'name' :
+    field === 'cost' ? 'cost' :
+    field === 'runningTotal' ? 'running total' :
+    'paid status';
 
   withUndo(`Edited ${fieldLabel} of "${expenseName}"`, () => {
     const d = loadData(currentYear, currentMonth);
@@ -1015,7 +1155,7 @@ function addRow(catIdx) {
   const catName = data[catIdx].name;
   withUndo(`Added row to "${catName}"`, () => {
     const d = loadData(currentYear, currentMonth);
-    d[catIdx].rows.push({ expense: '', cost: '', paid: false });
+    d[catIdx].rows.push({ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' });
     saveData(currentYear, currentMonth, d);
     renderBudget();
   });
@@ -1033,6 +1173,7 @@ function removeRow(catIdx, rowIdx) {
       saveData(currentYear, currentMonth, d);
       renderBudget();
     });
+    closeSheet();
   }
 }
 

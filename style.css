@@ -225,6 +225,23 @@ main { padding: 16px; }
   margin: 0;
 }
 
+/* Running total input replaces checkbox when a row is switched to Running Total */
+.running-total-input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 12px;
+  text-align: right;
+  padding: 4px 0;
+  color: #1c1c1e;
+}
+
+.running-total-input.over-budget {
+  color: #ff3b30;
+}
+
 .cell-remove {
   display: flex;
   align-items: center;
@@ -235,6 +252,17 @@ main { padding: 16px; }
   background: none;
   border: none;
   color: #ff3b30;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+/* Row-level vertical ellipsis replaces the old remove-row button */
+.row-ellipsis-btn {
+  background: none;
+  border: none;
+  color: #3a3a3c;
   font-size: 18px;
   cursor: pointer;
   padding: 0;
