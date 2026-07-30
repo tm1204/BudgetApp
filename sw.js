@@ -1,6 +1,6 @@
 // Cache name — bump this string with every release to force old caches
 // to be cleared and users to be prompted to refresh
-const CACHE_NAME = 'budget-app-v4.4';
+const CACHE_NAME = 'budget-app-v4.4.1';
 
 // All app assets cached for offline use
 const ASSETS = [
@@ -9,6 +9,7 @@ const ASSETS = [
   './style.css',
   './app.js',
   './manifest.json',
+  './version.json',
   './Icons/icon-192.png',
   './Icons/icon-512.png'
 ];

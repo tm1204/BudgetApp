@@ -1,5 +1,4 @@
 // ── Config ───────────────────────────────────────────────────────────────────
-const CACHE_NAME = 'budget-app-v4.4';
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i); // current year + 4 ahead
@@ -29,10 +28,11 @@ const DEFAULT_CATEGORIES = [
 
 let currentYear  = CURRENT_YEAR;
 let currentMonth = new Date().getMonth();
+let currentAppVersion = null;
 
 // Restore last viewed month/year if the app was previously opened —
 // keeps the user on whatever month they were looking at when they last
-// closed or minimized the app, rather than always resetting to "today"
+// closed or minimized the app, rather than always resetting to today's month
 const savedView = loadLastViewedMonth();
 if (savedView && YEARS.includes(savedView.year) && savedView.month >= 0 && savedView.month <= 11) {
   currentYear = savedView.year;
@@ -80,8 +80,46 @@ if ('serviceWorker' in navigator) {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     navigator.serviceWorker.getRegistration().then(reg => { if (reg) reg.update(); });
+    checkForAppUpdate();
+    alignActiveMonthTabDeferred();
   }
 });
+
+// ── Explicit App Version Check ──────────────────────────────────────────────
+// Uses version.json as the single app-version source of truth. This works
+// alongside the service worker, but does not rely solely on service worker
+// lifecycle events for update detection on iOS.
+function fetchVersionInfo() {
+  return fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })
+    .then(res => {
+      if (!res.ok) throw new Error('Failed to fetch version.json');
+      return res.json();
+    });
+}
+
+function checkForAppUpdate() {
+  return fetchVersionInfo()
+    .then(info => {
+      if (!info || !info.version) return;
+
+      // First successful load establishes the current app version baseline
+      if (!currentAppVersion) {
+        currentAppVersion = info.version;
+        return;
+      }
+
+      // If remote version differs from the baseline version currently loaded
+      // in memory, prompt the user and hard reload the app shell.
+      if (info.version !== currentAppVersion) {
+        if (confirm(`A new version of BudgetApp (${info.version}) is available. Refresh now?`)) {
+          window.location.reload();
+        }
+      }
+    })
+    .catch(() => {
+      // Silent fail — app should continue working even if version check fails
+    });
+}
 
 // ── Persistent Storage ──────────────────────────────────────────────────────
 // Requests that the browser NOT automatically clear this site's storage
@@ -788,6 +826,7 @@ function renderApp() {
   renderMonthTabs();
   renderBudget();
   renderActionBar();
+  checkForAppUpdate();
 }
 
 function renderYearSelect() {
@@ -804,6 +843,21 @@ function renderYearSelect() {
   };
 }
 
+// Centralized deferred alignment helper — using a short timeout ensures the
+// month tabs have finished rendering/layout before we try to scroll them.
+// This is used on load, on month/year changes, and on app resume.
+function alignActiveMonthTabDeferred() {
+  const tabs = document.getElementById('monthTabs');
+  if (!tabs) return;
+
+  setTimeout(() => {
+    const activeBtn = tabs.querySelector('button.active');
+    if (activeBtn) {
+      activeBtn.scrollIntoView({ behavior: 'auto', inline: 'start', block: 'nearest' });
+    }
+  }, 30);
+}
+
 function renderMonthTabs() {
   const tabs = document.getElementById('monthTabs');
   tabs.innerHTML = MONTHS.map((m, i) => {
@@ -815,10 +869,7 @@ function renderMonthTabs() {
 
   // Scroll the active/current month tab into view, aligned to the left edge,
   // so it appears as the first visible tab in the horizontal scroll area
-  const activeBtn = tabs.querySelector('button.active');
-  if (activeBtn) {
-    activeBtn.scrollIntoView({ behavior: 'auto', inline: 'start', block: 'nearest' });
-  }
+  alignActiveMonthTabDeferred();
 }
 
 function switchMonth(m) {

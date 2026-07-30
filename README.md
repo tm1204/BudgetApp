@@ -213,6 +213,7 @@ Change this string with every release. This triggers the service worker to clear
 | v4.3 | Main menu system (Export, Import, Permissions, Undo, Redo) accessed via app name button, Export Current Month/Full History, Import Month/History, Persistent Storage request and status, full Undo/Redo covering all actions (10-deep, persisted), sticky header while scrolling |
 | v4.3.1 | Bug fix — service worker registered with updateViaCache: 'none' and forced update() call to fix update prompts not firing reliably due to browser HTTP caching of sw.js |
 | v4.4 | Minimal bold line-style SVG icons for Export, Import, Permissions, Undo, Redo, and Rename; app now remembers and restores the last viewed month/year on reopen; active month tab automatically scrolls to the left edge of the month scroll bar |
+| v4.4.1 | 	Explicit app-version detection via version.json; version removed from app.js config and kept only in sw.js and version.json; update check now runs on load and resume via version.json; active month tab alignment centralized and re-run with deferred timing on load, month/year change, and app resume  |
 
 ---
 
