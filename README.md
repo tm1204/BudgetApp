@@ -29,7 +29,8 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 - **Monthly tabs** — one tab per month, January through December
 - **Remembers last viewed month** — reopening the app (e.g. after being minimized) returns you to whichever month/year you last had open, rather than resetting to today's month
 - **Auto-scroll to current tab** — the active month tab is automatically scrolled into view, aligned to the left edge of the month scroll bar
-- **Summary bar** — always-visible totals for Income, Total Expenses, Balance and In Account
+- **Summary bar** — always-visible totals for Income, Total Expenses, Budgeted Balance and In Account
+- **Budgeted Balance** — Income minus total budgeted expenses
 - **In Account** — Income minus actual cash outflow:
   - **Fully Paid** rows subtract full cost only when checked
   - **Running Total** rows subtract the entered running total amount
@@ -47,13 +48,15 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 - **Add rows** — per category via the "+ Add row" button
 - **Row actions menu** — each row now uses a **vertical ellipsis** menu instead of a direct remove button
 - **Remove Row** — available from the row menu
-- **Switch Row to Running Total** — available from the row menu
-- **Switch Row to Fully Paid** — available from the row menu
+- **Switch Row to Running Total** — available from the row menu for non-Income rows
+- **Switch Row to Fully Paid** — available from the row menu for non-Income rows
+- **Income row menu** — only contains **Remove Row**
 - **Expense name** — free text input
 - **Cost** — numeric input
 - **Remaining** — auto-calculated running balance after each row's effective budget impact is deducted from income
-- **Fully Paid mode** — row shows a checkbox in the Status column
-- **Running Total mode** — row shows a numeric running-total input in the Status column
+- **Status column** — right-aligned
+- **Fully Paid mode** — row shows a right-aligned checkbox in the Status column
+- **Running Total mode** — row shows a right-aligned numeric running-total input in the Status column
 - **Over-budget visual warning** — running total text turns red when the entered running total exceeds the row's budgeted cost
 
 ### 🧮 Running Total Logic
@@ -99,7 +102,7 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
 - Export, Import, Permissions, Undo, Redo, and Rename use minimal bold line-style SVG icons for a cleaner, more modern look, distinct from the app's colourful rounded icon
 
 ### 📤 Export / Import
-- **Export Current Month As Template** — downloads a JSON file containing the current month's categories, rows, and protection status
+- **Export Current Month As Template** — downloads a JSON file containing the current month's categories, rows, protection status, row modes, paid state, and running total values
 - **Export Entire Budget History** — downloads a JSON file containing all saved months and protection flags across all years (undo/redo history excluded)
 - **Import a Single Month Template** — overwrites the currently selected month only, with confirmation prompt
 - **Import Budget History** — overwrites all matching saved months/settings from the file, with confirmation prompt
@@ -216,12 +219,12 @@ When deploying a new version, update:
 
 Example:
 
-    const CACHE_NAME = 'budget-app-v5';
+    const CACHE_NAME = 'budget-app-v5.0.1';
 
 and
 
     {
-      "version": "v5"
+      "version": "v5.0.1"
     }
 
 This triggers the service worker to clear old caches and lets the app detect new releases via `version.json`. Recommended versioning convention:
@@ -253,6 +256,7 @@ This triggers the service worker to clear old caches and lets the app detect new
 | v4.4 | Minimal bold line-style SVG icons for Export, Import, Permissions, Undo, Redo, and Rename; app now remembers and restores the last viewed month/year on reopen; active month tab automatically scrolls to the left edge of the month scroll bar |
 | v4.4.1 | Explicit app-version detection via `version.json`; version removed from `app.js` config and kept only in `sw.js` and `version.json`; update check now runs on load and resume via `version.json`; active month tab alignment centralized and re-run with deferred timing on load, month/year change, and app resume |
 | v5 | Row-level vertical ellipsis menu replaces remove-row button; each row can now switch between Fully Paid and Running Total modes; Running Total rows replace the checkbox with a numeric input; In Account now subtracts running totals directly for Running Total rows; Remaining / budget impact for Running Total rows uses the greater of budgeted cost and running total; running total text turns red when it exceeds the allocated budget |
+| v5.0.1 | Status header right-aligned; checkbox and running total inputs right-aligned; Balance renamed to Budgeted Balance; Income row menu limited to Remove Row only; export/import confirmation updated to explicitly include row modes, paid state, and running total values |
 
 ---
 

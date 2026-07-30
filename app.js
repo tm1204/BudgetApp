@@ -765,7 +765,25 @@ function addCategory() {
 function openRowMenu(catIdx, rowIdx) {
   const data = loadData(currentYear, currentMonth);
   const row = data[catIdx].rows[rowIdx];
+  const category = data[catIdx];
   const mode = row.mode ?? 'fully-paid';
+
+  // Income rows should only allow Remove Row — no switching options
+  if (category.isIncome) {
+    const html = `
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">Row Options</div>
+
+      <button class="sheet-option" onclick="removeRow(${catIdx},${rowIdx})">
+        <span class="sheet-option-icon">🗑️</span> Remove Row
+      </button>
+
+      <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
+    `;
+    openSheet(html);
+    return;
+  }
+
   const switchLabel = mode === 'running-total'
     ? 'Switch Row to Fully Paid'
     : 'Switch Row to Running Total';
@@ -1019,7 +1037,7 @@ function renderBudget() {
         <span class="value">${fmt(totalExpenses)}</span>
       </div>
       <div class="summary-item">
-        <span class="label">Balance</span>
+        <span class="label">Budgeted Balance</span>
         <span class="value ${balanceCls}">${balance < 0 ? '-' : ''}${fmt(balance)}</span>
       </div>
       <div class="summary-item">

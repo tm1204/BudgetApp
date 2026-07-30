@@ -164,7 +164,7 @@ main { padding: 16px; }
 .col-headers .ch-expense   { font-size: 11px; font-weight: 600; color: #8e8e93; text-align: left; }
 .col-headers .ch-cost      { font-size: 11px; font-weight: 600; color: #8e8e93; text-align: right; }
 .col-headers .ch-remaining { font-size: 11px; font-weight: 600; color: #8e8e93; text-align: right; }
-.col-headers .ch-paid      { font-size: 11px; font-weight: 600; color: #8e8e93; text-align: center; }
+.col-headers .ch-paid      { font-size: 11px; font-weight: 600; color: #8e8e93; text-align: right; }
 .col-headers .ch-remove    { text-align: center; }
 
 .budget-row {
@@ -214,7 +214,7 @@ main { padding: 16px; }
 .cell-paid {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
 }
 
 .cell-paid input[type="checkbox"] {
