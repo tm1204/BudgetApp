@@ -55,6 +55,14 @@ const ICON_REDO = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" s
 
 const ICON_RENAME = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`;
 
+const ICON_TEMPLATE = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8l5 5v13H3V3h5z"/><path d="M8 3v5h8"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>`;
+
+const ICON_PROTECTED = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"/><path d="M9.5 12.5l1.5 1.5 3.5-3.5"/></svg>`;
+
+const ICON_UNPROTECTED = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"/></svg>`;
+
+const ICON_BACK = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>`;
+
 // ── Service Worker ──────────────────────────────────────────────────────────
 // updateViaCache: 'none' prevents the browser's HTTP cache from serving a stale
 // sw.js file, which was previously blocking update detection on iOS Safari
@@ -319,7 +327,6 @@ function saveData(year, month, data) {
   // overwritten by Set as Template propagation
   setProtected(year, month, true);
   renderMonthTabs();
-  renderActionBar();
 }
 
 // ── Template Propagation ─────────────────────────────────────────────────────
@@ -377,7 +384,6 @@ function toggleProtection() {
   withUndo(`${willProtect ? 'Protected' : 'Unprotected'} ${MONTHS[currentMonth]} ${currentYear}`, () => {
     setProtected(currentYear, currentMonth, willProtect);
     renderMonthTabs();
-    renderActionBar();
   });
 }
 
@@ -398,10 +404,14 @@ function closeSheet() {
 function openMainMenu() {
   const undoCount = getUndoStack().length;
   const redoCount = getRedoStack().length;
+  const protectedNow = isProtected(currentYear, currentMonth);
 
   const html = `
-    <div class="sheet-handle"></div>
-    <div class="sheet-title">BudgetApp Menu</div>
+    <div class="sheet-header">
+      <div class="sheet-back-placeholder"></div>
+      <div class="sheet-title-inline">BudgetApp Menu</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
 
     <button class="sheet-option" onclick="openExportMenu()">
       <span class="sheet-option-icon">${ICON_EXPORT}</span> Export
@@ -412,7 +422,16 @@ function openMainMenu() {
     </button>
 
     <button class="sheet-option" onclick="openPermissionsMenu()">
-      <span class="sheet-option-icon">${ICON_PERMISSIONS}</span> Permissions
+      <span class="sheet-option-icon">${ICON_PERMISSIONS}</span> App Permissions
+    </button>
+
+    <button class="sheet-option" onclick="setAsTemplate(); closeSheet();">
+      <span class="sheet-option-icon">${ICON_TEMPLATE}</span> Set Month as Template
+    </button>
+
+    <button class="sheet-option" onclick="toggleProtection(); closeSheet();">
+      <span class="sheet-option-icon">${protectedNow ? ICON_PROTECTED : ICON_UNPROTECTED}</span>
+      Month ${protectedNow ? 'Protected' : 'Unprotected'}
     </button>
 
     <button class="sheet-option ${undoCount === 0 ? 'disabled' : ''}"
@@ -427,6 +446,8 @@ function openMainMenu() {
       <span class="sheet-option-sub">${redoCount > 0 ? redoCount : ''}</span>
     </button>
 
+    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
+
     <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
   openSheet(html);
@@ -435,16 +456,23 @@ function openMainMenu() {
 // ── Export Menu ──────────────────────────────────────────────────────────────
 function openExportMenu() {
   const html = `
-    <div class="sheet-handle"></div>
-    <div class="sheet-title">Export</div>
+    <div class="sheet-header">
+      <button class="sheet-back-btn" onclick="openMainMenu()">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
+      <div class="sheet-title-inline">Export</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
 
     <button class="sheet-option" onclick="exportCurrentMonth()">
-      <span class="sheet-option-icon">📄</span> Export Current Month As Template
+      <span class="sheet-option-icon">${ICON_EXPORT}</span> Export Current Month As Template
     </button>
 
     <button class="sheet-option" onclick="exportFullHistory()">
-      <span class="sheet-option-icon">🗂️</span> Export Entire Budget History
+      <span class="sheet-option-icon">${ICON_EXPORT}</span> Export Entire Budget History
     </button>
+
+    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
 
     <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
@@ -503,16 +531,23 @@ let pendingImportType = null; // tracks which import flow triggered the file pic
 
 function openImportMenu() {
   const html = `
-    <div class="sheet-handle"></div>
-    <div class="sheet-title">Import</div>
+    <div class="sheet-header">
+      <button class="sheet-back-btn" onclick="openMainMenu()">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
+      <div class="sheet-title-inline">Import</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
 
     <button class="sheet-option" onclick="triggerImport('month')">
-      <span class="sheet-option-icon">📄</span> Import a Single Month Template
+      <span class="sheet-option-icon">${ICON_IMPORT}</span> Import a Single Month Template
     </button>
 
     <button class="sheet-option" onclick="triggerImport('history')">
-      <span class="sheet-option-icon">🗂️</span> Import Budget History
+      <span class="sheet-option-icon">${ICON_IMPORT}</span> Import Budget History
     </button>
+
+    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
 
     <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
@@ -564,7 +599,6 @@ function handleImportFile(event) {
           });
           renderMonthTabs();
           renderBudget();
-          renderActionBar();
         });
         alert('Import complete.');
       }
@@ -580,12 +614,21 @@ function handleImportFile(event) {
 // ── Permissions Menu ─────────────────────────────────────────────────────────
 function openPermissionsMenu() {
   const html = `
-    <div class="sheet-handle"></div>
-    <div class="sheet-title">Permissions</div>
+    <div class="sheet-header">
+      <button class="sheet-back-btn" onclick="openMainMenu()">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
+      <div class="sheet-title-inline">App Permissions</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
+
     <div id="permissionStatusRow" class="permission-status">
       <span>Persistent Storage</span>
       <span class="permission-badge">Checking...</span>
     </div>
+
+    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
+
     <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
   openSheet(html);
@@ -628,8 +671,11 @@ function openCategoryMenu(catIdx) {
   const disableDown = isInc || catIdx === data.length - 1;
 
   const html = `
-    <div class="sheet-handle"></div>
-    <div class="sheet-title">${cat.name}</div>
+    <div class="sheet-header">
+      <div class="sheet-back-placeholder"></div>
+      <div class="sheet-title-inline">${cat.name}</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
 
     <button class="sheet-option ${isInc ? 'disabled' : ''}"
       onclick="${isInc ? '' : `sheetRename(${catIdx})`}">
@@ -654,6 +700,8 @@ function openCategoryMenu(catIdx) {
       onclick="${isInc ? '' : `sheetDelete(${catIdx})`}">
       <span class="sheet-option-icon">🗑️</span> Delete
     </button>
+
+    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
 
     <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
@@ -687,9 +735,18 @@ function sheetColour(catIdx) {
   `).join('');
 
   const html = `
-    <div class="sheet-handle"></div>
-    <div class="sheet-title">Choose Colour</div>
+    <div class="sheet-header">
+      <button class="sheet-back-btn" onclick="openCategoryMenu(${catIdx})">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
+      <div class="sheet-title-inline">Choose Colour</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
+
     <div class="colour-grid">${swatches}</div>
+
+    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
+
     <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
   openSheet(html);
@@ -771,12 +828,17 @@ function openRowMenu(catIdx, rowIdx) {
   // Income rows should only allow Remove Row — no switching options
   if (category.isIncome) {
     const html = `
-      <div class="sheet-handle"></div>
-      <div class="sheet-title">Row Options</div>
+      <div class="sheet-header">
+        <div class="sheet-back-placeholder"></div>
+        <div class="sheet-title-inline">Row Options</div>
+        <div class="sheet-back-placeholder"></div>
+      </div>
 
       <button class="sheet-option" onclick="removeRow(${catIdx},${rowIdx})">
         <span class="sheet-option-icon">🗑️</span> Remove Row
       </button>
+
+      <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
 
       <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
     `;
@@ -789,8 +851,11 @@ function openRowMenu(catIdx, rowIdx) {
     : 'Switch Row to Running Total';
 
   const html = `
-    <div class="sheet-handle"></div>
-    <div class="sheet-title">Row Options</div>
+    <div class="sheet-header">
+      <div class="sheet-back-placeholder"></div>
+      <div class="sheet-title-inline">Row Options</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
 
     <button class="sheet-option" onclick="removeRow(${catIdx},${rowIdx})">
       <span class="sheet-option-icon">🗑️</span> Remove Row
@@ -799,6 +864,8 @@ function openRowMenu(catIdx, rowIdx) {
     <button class="sheet-option" onclick="switchRowMode(${catIdx},${rowIdx})">
       <span class="sheet-option-icon">⇄</span> ${switchLabel}
     </button>
+
+    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
 
     <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
@@ -955,7 +1022,6 @@ function renderApp() {
   renderYearSelect();
   renderMonthTabs();
   renderBudget();
-  renderActionBar();
   checkForAppUpdate();
 }
 
@@ -969,7 +1035,6 @@ function renderYearSelect() {
     saveLastViewedMonth(currentYear, currentMonth); // remember new year selection too
     renderMonthTabs();
     renderBudget();
-    renderActionBar();
   };
 }
 
@@ -1007,17 +1072,6 @@ function switchMonth(m) {
   saveLastViewedMonth(currentYear, currentMonth); // remember this as the last viewed month
   renderMonthTabs();
   renderBudget();
-  renderActionBar();
-}
-
-function renderActionBar() {
-  const locked = isProtected(currentYear, currentMonth);
-  document.getElementById('actionBar').innerHTML = `
-    <button class="action-btn template-btn" onclick="setAsTemplate()">📋 Set as Template</button>
-    <button class="action-btn protect-btn ${locked ? 'protected' : ''}" onclick="toggleProtection()">
-      ${locked ? '🔒 Protected' : '🔓 Unprotected'}
-    </button>
-  `;
 }
 
 function renderBudget() {
@@ -1061,7 +1115,7 @@ function renderBudget() {
         </div>
         <div class="section-header-right">
           <span class="section-total">${fmt(sectionTotal)}</span>
-          <button class="ellipsis-btn" onclick="openCategoryMenu(${catIdx})">⋯</button>
+          <button class="ellipsis-btn" onclick="openCategoryMenu(${catIdx})">⋮</button>
         </div>
       </div>
       <div class="col-headers">

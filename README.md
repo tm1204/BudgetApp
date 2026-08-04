@@ -38,15 +38,16 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 ### 🗂️ Categories
 - **8 default categories** — Income, Tithes, Home, Vehicles, Debits, Food, Fuel, Entertainment
 - **Add custom categories** — via the "+ Add Category" button at the bottom of the list
-- **Rename categories** — via the ⋯ menu on each category header (Income excluded)
-- **Delete categories** — via the ⋯ menu with confirmation prompt (Income excluded)
-- **Reorder categories** — Move Up / Move Down via the ⋯ menu; Income is permanently locked to the top position and no category can be moved above position 2
+- **Rename categories** — via the ⋮ menu on each category header (Income excluded)
+- **Delete categories** — via the ⋮ menu with confirmation prompt (Income excluded)
+- **Reorder categories** — Move Up / Move Down via the category menu; Income is permanently locked to the top position and no category can be moved above position 2
 - **Category colours** — each category has a selectable colour from a 16-colour palette, applied to the section header and pie chart; Income has its own fixed selectable colour separate from the expense palette
 - **Section totals** — each category header displays the sum of all its rows on the right
+- **Consistent category ellipsis** — category heading menu now uses the same vertical ellipsis style as row menus
 
 ### 📋 Rows
 - **Add rows** — per category via the "+ Add row" button
-- **Row actions menu** — each row now uses a **vertical ellipsis** menu instead of a direct remove button
+- **Row actions menu** — each row uses a **vertical ellipsis** menu instead of a direct remove button
 - **Remove Row** — available from the row menu
 - **Switch Row to Running Total** — available from the row menu for non-Income rows
 - **Switch Row to Fully Paid** — available from the row menu for non-Income rows
@@ -86,20 +87,29 @@ Each row can operate in one of two modes:
 - Income excluded from chart
 
 ### 📅 Month Propagation
-- **Set as Template** button — bottom left — copies current month's data (names + costs, paid boxes reset, running totals reset) to all unprotected following months across all years
-- **Protected toggle** button — bottom right — manually lock or unlock a month
+- **Set Month as Template** — now moved into the main menu
+- Copies current month's data (names + costs, paid boxes reset, running totals reset) to all unprotected following months across all years
+- **Month Protected / Unprotected** — now moved into the main menu
 - **Auto-protect** — any manual edit to a month automatically protects it from being overwritten
 - **🔒 indicator** — protected months show a lock icon on the month tab
 - Propagation skips protected months but continues to unprotected months beyond them
 
 ### 📖 Main Menu
 Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trigger button:
-- **Export** — Export Current Month As Template, or Export Entire Budget History
-- **Import** — Import a Single Month Template, or Import Budget History
-- **Permissions** — view and request Persistent Storage status
-- **Undo** — reverts the most recent action, shows count of available undos
-- **Redo** — reapplies the most recently undone action, shows count of available redos
-- Export, Import, Permissions, Undo, Redo, and Rename use minimal bold line-style SVG icons for a cleaner, more modern look, distinct from the app's colourful rounded icon
+- **Export**
+- **Import**
+- **App Permissions**
+- **Set Month as Template**
+- **Month Protected / Unprotected**
+- **Undo**
+- **Redo**
+- App version shown as a **greyed-out line** at the bottom of the menu
+- Export, Import, App Permissions, Undo, Redo, Protected/Unprotected, Set Month as Template, and Rename use consistent minimal bold line-style SVG icons aligned to the app’s modern minimal interface
+
+### ⬅️ Submenu Navigation
+- Submenus now include a **Back** button in the **top-left corner**
+- Back returns to the previous menu instead of forcing the user to close and reopen the menu flow
+- Export, Import, App Permissions, and Choose Colour all use this submenu back pattern
 
 ### 📤 Export / Import
 - **Export Current Month As Template** — downloads a JSON file containing the current month's categories, rows, protection status, row modes, paid state, and running total values
@@ -107,17 +117,19 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
 - **Import a Single Month Template** — overwrites the currently selected month only, with confirmation prompt
 - **Import Budget History** — overwrites all matching saved months/settings from the file, with confirmation prompt
 - All imports are recorded on the Undo stack
+- Export / Import submenu icons are aligned with the app’s existing line-icon theme
 
 ### ↩️ Undo / Redo
-- Covers all mutating actions: row edits, add/remove row, row mode switches, category rename/colour/move/delete/add, Set as Template, protection toggle, and imports
+- Covers all mutating actions: row edits, add/remove row, row mode switches, category rename/colour/move/delete/add, Set Month as Template, Month Protected/Unprotected, and imports
 - Stores the last **10 actions**
 - Undo stack is cleared of redo history whenever a new action is performed after an undo (standard undo/redo behaviour)
 - Persists across page refresh — stored in localStorage
 - Each undo/redo shows a plain-language description of the action reverted or reapplied
 
-### 🔐 Persistent Storage
+### 🔐 App Permissions
+- Renamed from **Permissions** to **App Permissions**
 - App automatically requests persistent storage permission from the browser on load, reducing the chance of iOS automatically clearing budget data during storage cleanup
-- Permissions menu shows live Granted / Not Granted status
+- App Permissions menu shows live Granted / Not Granted status
 - "Request" button available if not yet granted
 - Does not protect against manually clearing Safari website data — use Export for a true backup
 
@@ -160,7 +172,7 @@ All budget data is stored in the browser's localStorage — no server, no accoun
 | __redoStack | Last 10 redo snapshots |
 | lastViewedMonth | The last month/year tab that was open — used to restore your place when reopening the app |
 
-⚠️ Clearing Safari's website data will erase all budget entries, undo/redo history, and the remembered last-viewed month. Use Export regularly for a true backup, and grant Persistent Storage permission via the Permissions menu to reduce automatic data loss.
+⚠️ Clearing Safari's website data will erase all budget entries, undo/redo history, and the remembered last-viewed month. Use Export regularly for a true backup, and grant Persistent Storage permission via the App Permissions menu to reduce automatic data loss.
 
 ---
 
@@ -168,9 +180,9 @@ All budget data is stored in the browser's localStorage — no server, no accoun
 
 | Scenario | Behaviour |
 |---|---|
-| Tap "Set as Template" | Copies current month to all unprotected future months across all years |
-| Month is protected | Skipped by Set as Template — data preserved |
-| Month is unprotected | Overwritten by Set as Template |
+| Select "Set Month as Template" | Copies current month to all unprotected future months across all years |
+| Month is protected | Skipped by template propagation — data preserved |
+| Month is unprotected | Overwritten by template propagation |
 | Any manual edit made | Month is automatically protected immediately |
 | Protected months beyond a skipped one | Still receive the template — propagation continues past protected months |
 | Past months | Never propagated to regardless of protection status |
@@ -206,7 +218,7 @@ New categories automatically cycle through the palette in order, skipping colour
 
 ## 🖼️ Menu Icon Style
 
-Export, Import, Permissions, Undo, Redo, and Rename use minimal, bold, black line-style inline SVG icons — a deliberately different visual language from the app's colourful rounded main icon, keeping the day-to-day interface clean and modern. Change Colour, Move Up, Move Down, and Delete remain as simple emoji/text glyphs, with Delete kept in red as a destructive-action cue.
+Export, Import, App Permissions, Undo, Redo, Rename, Protected/Unprotected, and Set Month as Template use minimal, bold, black line-style inline SVG icons — a deliberately different visual language from the app's colourful rounded main icon, keeping the day-to-day interface clean and modern. Change Colour, Move Up, Move Down, and Delete remain as simple glyph/emoji controls where retained.
 
 ---
 
@@ -219,12 +231,12 @@ When deploying a new version, update:
 
 Example:
 
-    const CACHE_NAME = 'budget-app-v5.0.1';
+    const CACHE_NAME = 'budget-app-v5.1';
 
 and
 
     {
-      "version": "v5.0.1"
+      "version": "v5.1"
     }
 
 This triggers the service worker to clear old caches and lets the app detect new releases via `version.json`. Recommended versioning convention:
@@ -232,8 +244,8 @@ This triggers the service worker to clear old caches and lets the app detect new
 | Change Type | Example |
 |---|---|
 | Major new features | budget-app-v6 |
-| Minor additions | budget-app-v5.1 |
-| Bug fixes | budget-app-v5.0.1 |
+| Minor additions | budget-app-v5.2 |
+| Bug fixes | budget-app-v5.1.1 |
 
 ---
 
@@ -257,6 +269,7 @@ This triggers the service worker to clear old caches and lets the app detect new
 | v4.4.1 | Explicit app-version detection via `version.json`; version removed from `app.js` config and kept only in `sw.js` and `version.json`; update check now runs on load and resume via `version.json`; active month tab alignment centralized and re-run with deferred timing on load, month/year change, and app resume |
 | v5 | Row-level vertical ellipsis menu replaces remove-row button; each row can now switch between Fully Paid and Running Total modes; Running Total rows replace the checkbox with a numeric input; In Account now subtracts running totals directly for Running Total rows; Remaining / budget impact for Running Total rows uses the greater of budgeted cost and running total; running total text turns red when it exceeds the allocated budget |
 | v5.0.1 | Status header right-aligned; checkbox and running total inputs right-aligned; Balance renamed to Budgeted Balance; Income row menu limited to Remove Row only; export/import confirmation updated to explicitly include row modes, paid state, and running total values |
+| v5.1 | Category ellipsis updated to match row ellipsis; Protected/Unprotected moved into main menu as Month Protected/Unprotected; Set Month as Template moved into main menu; Permissions renamed to App Permissions; submenu back buttons added in the top-left corner; app version added as a greyed-out line at the bottom of menus; submenu icons reviewed and aligned with the app’s minimal line-icon theme |
 
 ---
 
