@@ -183,6 +183,25 @@ function isRelevantKey(key) {
   return key.startsWith('budget_') || key.startsWith('protected_');
 }
 
+function safeParseJSON(value, fallback = null) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // ── Last Viewed Month Persistence ────────────────────────────────────────────
 // Remembers whichever month/year tab was last open so that re-opening the
 // app (e.g. from the iPhone home screen after being minimized) returns the
@@ -193,7 +212,7 @@ function saveLastViewedMonth(year, month) {
 
 function loadLastViewedMonth() {
   const raw = localStorage.getItem('lastViewedMonth');
-  return raw ? JSON.parse(raw) : null;
+  return safeParseJSON(raw, null);
 }
 
 // ── Undo / Redo ──────────────────────────────────────────────────────────────
@@ -203,14 +222,14 @@ function loadLastViewedMonth() {
 
 function getUndoStack() {
   const raw = localStorage.getItem('__undoStack');
-  return raw ? JSON.parse(raw) : [];
+  return safeParseJSON(raw, []);
 }
 function setUndoStack(stack) {
   localStorage.setItem('__undoStack', JSON.stringify(stack));
 }
 function getRedoStack() {
   const raw = localStorage.getItem('__redoStack');
-  return raw ? JSON.parse(raw) : [];
+  return safeParseJSON(raw, []);
 }
 function setRedoStack(stack) {
   localStorage.setItem('__redoStack', JSON.stringify(stack));
@@ -307,16 +326,26 @@ function normalizeRow(row) {
 function loadData(year, month) {
   const raw = localStorage.getItem(storageKey(year, month));
   if (raw) {
-    const parsed = JSON.parse(raw);
+    const parsed = safeParseJSON(raw, null);
+    if (!Array.isArray(parsed)) {
+      return DEFAULT_CATEGORIES.map(c => ({ ...c, rows: c.rows.map(r => ({ ...r })) }));
+    }
+
     // Enforce isIncome strictly by index 0 — protects against legacy saved
     // data (pre-v4.0) that never had this flag, which caused Income to be
     // incorrectly treated as an expense
-    return parsed.map((cat, idx) => ({
-      ...cat,
-      isIncome: idx === 0,
-      colour: cat.colour || (idx === 0 ? INCOME_COLOUR : PALETTE[idx % PALETTE.length]),
-      rows: (cat.rows || []).map(normalizeRow)
-    }));
+    return parsed.map((cat, idx) => {
+      const fallbackCat = DEFAULT_CATEGORIES[idx] || DEFAULT_CATEGORIES[DEFAULT_CATEGORIES.length - 1];
+      const normalizedCat = cat && typeof cat === 'object' ? cat : {};
+      return {
+        ...fallbackCat,
+        ...normalizedCat,
+        name: typeof normalizedCat.name === 'string' && normalizedCat.name.trim() ? normalizedCat.name : fallbackCat.name,
+        isIncome: idx === 0,
+        colour: normalizedCat.colour || (idx === 0 ? INCOME_COLOUR : PALETTE[idx % PALETTE.length]),
+        rows: Array.isArray(normalizedCat.rows) ? normalizedCat.rows.map(normalizeRow) : fallbackCat.rows.map(r => ({ ...r }))
+      };
+    });
   }
   return DEFAULT_CATEGORIES.map(c => ({ ...c, rows: c.rows.map(r => ({ ...r })) }));
 }
@@ -513,7 +542,10 @@ function exportFullHistory() {
   const entries = {};
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (isRelevantKey(key)) entries[key] = JSON.parse(localStorage.getItem(key));
+    if (!isRelevantKey(key)) continue;
+    const rawValue = localStorage.getItem(key);
+    const parsedValue = safeParseJSON(rawValue, null);
+    if (parsedValue !== null) entries[key] = parsedValue;
   }
   const payload = {
     version: 1,
@@ -673,7 +705,7 @@ function openCategoryMenu(catIdx) {
   const html = `
     <div class="sheet-header">
       <div class="sheet-back-placeholder"></div>
-      <div class="sheet-title-inline">${cat.name}</div>
+      <div class="sheet-title-inline">${escapeHtml(cat.name)}</div>
       <div class="sheet-back-placeholder"></div>
     </div>
 
@@ -950,7 +982,7 @@ function renderChart(data) {
     return `
       <div class="legend-item">
         <div class="legend-dot" style="background:${cat.colour}"></div>
-        <span class="legend-name">${cat.name}</span>
+        <span class="legend-name">${escapeHtml(cat.name)}</span>
         <span class="legend-value">${pct}%</span>
       </div>`;
   }).join('');
@@ -1111,7 +1143,7 @@ function renderBudget() {
     <div class="section">
       <div class="section-header" style="${headerStyle}">
         <div class="section-header-left">
-          <span>${cat.name}</span>
+          <span>${escapeHtml(cat.name)}</span>
         </div>
         <div class="section-header-right">
           <span class="section-total">${fmt(sectionTotal)}</span>
@@ -1145,7 +1177,7 @@ function renderBudget() {
       }
 
       const checkedAttr = row.paid ? 'checked' : '';
-      const safeExpense = row.expense.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      const safeExpense = escapeHtml(row.expense);
 
       let statusCell = '';
       if (cat.isIncome) {
