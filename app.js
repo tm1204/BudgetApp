@@ -414,6 +414,8 @@ function toggleProtection() {
     setProtected(currentYear, currentMonth, willProtect);
     renderMonthTabs();
   });
+  openMainMenu();
+  setTimeout(() => closeSheet(), 220);
 }
 
 // ── Bottom Sheet (shared popup component) ────────────────────────────────────
@@ -437,7 +439,9 @@ function openMainMenu() {
 
   const html = `
     <div class="sheet-header">
-      <div class="sheet-back-placeholder"></div>
+      <button class="sheet-back-btn" onclick="closeSheet()">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
       <div class="sheet-title-inline">BudgetApp Menu</div>
       <div class="sheet-back-placeholder"></div>
     </div>
@@ -454,13 +458,13 @@ function openMainMenu() {
       <span class="sheet-option-icon">${ICON_PERMISSIONS}</span> App Permissions
     </button>
 
-    <button class="sheet-option" onclick="setAsTemplate(); closeSheet();">
-      <span class="sheet-option-icon">${ICON_TEMPLATE}</span> Set Month as Template
+    <button class="sheet-option" onclick="setAsTemplate();">
+      <span class="sheet-option-icon">${ICON_TEMPLATE}</span> Set Current Month as Template
     </button>
 
-    <button class="sheet-option" onclick="toggleProtection(); closeSheet();">
+    <button class="sheet-option" onclick="toggleProtection();">
       <span class="sheet-option-icon">${protectedNow ? ICON_PROTECTED : ICON_UNPROTECTED}</span>
-      Month ${protectedNow ? 'Protected' : 'Unprotected'}
+      Current Month ${protectedNow ? 'Protected' : 'Unprotected'}
     </button>
 
     <button class="sheet-option ${undoCount === 0 ? 'disabled' : ''}"
@@ -476,8 +480,6 @@ function openMainMenu() {
     </button>
 
     <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
-
-    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
   openSheet(html);
 }
@@ -502,8 +504,6 @@ function openExportMenu() {
     </button>
 
     <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
-
-    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
   openSheet(html);
 }
@@ -580,8 +580,6 @@ function openImportMenu() {
     </button>
 
     <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
-
-    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
   openSheet(html);
 }
@@ -660,8 +658,6 @@ function openPermissionsMenu() {
     </div>
 
     <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
-
-    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
   openSheet(html);
 
@@ -704,7 +700,9 @@ function openCategoryMenu(catIdx) {
 
   const html = `
     <div class="sheet-header">
-      <div class="sheet-back-placeholder"></div>
+      <button class="sheet-back-btn" onclick="closeSheet()">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
       <div class="sheet-title-inline">${escapeHtml(cat.name)}</div>
       <div class="sheet-back-placeholder"></div>
     </div>
@@ -734,8 +732,6 @@ function openCategoryMenu(catIdx) {
     </button>
 
     <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
-
-    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
   openSheet(html);
 }
@@ -778,8 +774,6 @@ function sheetColour(catIdx) {
     <div class="colour-grid">${swatches}</div>
 
     <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
-
-    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
   `;
   openSheet(html);
 }
@@ -857,26 +851,8 @@ function openRowMenu(catIdx, rowIdx) {
   const category = data[catIdx];
   const mode = row.mode ?? 'fully-paid';
 
-  // Income rows should only allow Remove Row — no switching options
-  if (category.isIncome) {
-    const html = `
-      <div class="sheet-header">
-        <div class="sheet-back-placeholder"></div>
-        <div class="sheet-title-inline">Row Options</div>
-        <div class="sheet-back-placeholder"></div>
-      </div>
-
-      <button class="sheet-option" onclick="removeRow(${catIdx},${rowIdx})">
-        <span class="sheet-option-icon">🗑️</span> Remove Row
-      </button>
-
-      <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
-
-      <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
-    `;
-    openSheet(html);
-    return;
-  }
+  const disableUp = rowIdx === 0;
+  const disableDown = rowIdx === data[catIdx].rows.length - 1;
 
   const switchLabel = mode === 'running-total'
     ? 'Switch Row to Fully Paid'
@@ -884,7 +860,9 @@ function openRowMenu(catIdx, rowIdx) {
 
   const html = `
     <div class="sheet-header">
-      <div class="sheet-back-placeholder"></div>
+      <button class="sheet-back-btn" onclick="closeSheet()">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
       <div class="sheet-title-inline">Row Options</div>
       <div class="sheet-back-placeholder"></div>
     </div>
@@ -897,9 +875,15 @@ function openRowMenu(catIdx, rowIdx) {
       <span class="sheet-option-icon">⇄</span> ${switchLabel}
     </button>
 
-    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
+    <button class="sheet-option ${disableUp ? 'disabled' : ''}" onclick="${disableUp ? '' : `moveRow(${catIdx},${rowIdx},-1)`}">
+      <span class="sheet-option-icon">▲</span> Move Up
+    </button>
 
-    <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
+    <button class="sheet-option ${disableDown ? 'disabled' : ''}" onclick="${disableDown ? '' : `moveRow(${catIdx},${rowIdx},1)`}">
+      <span class="sheet-option-icon">▼</span> Move Down
+    </button>
+
+    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
   `;
   openSheet(html);
 }
@@ -929,6 +913,25 @@ function switchRowMode(catIdx, rowIdx) {
     renderBudget();
   });
 
+  closeSheet();
+}
+
+function moveRow(catIdx, rowIdx, direction) {
+  const data = loadData(currentYear, currentMonth);
+  const newIdx = rowIdx + direction;
+  if (newIdx < 0 || newIdx >= data[catIdx].rows.length) {
+    closeSheet();
+    return;
+  }
+
+  const row = data[catIdx].rows[rowIdx];
+  const rowName = row.expense || '(unnamed)';
+  withUndo(`Moved row "${rowName}" ${direction < 0 ? 'up' : 'down'}`, () => {
+    const d = loadData(currentYear, currentMonth);
+    [d[catIdx].rows[rowIdx], d[catIdx].rows[newIdx]] = [d[catIdx].rows[newIdx], d[catIdx].rows[rowIdx]];
+    saveData(currentYear, currentMonth, d);
+    renderBudget();
+  });
   closeSheet();
 }
 

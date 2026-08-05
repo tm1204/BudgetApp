@@ -93,3 +93,69 @@ test('renders budget safely when stored data is malformed', () => {
   assert.ok(document.getElementById('budgetContent').innerHTML.includes('Income'));
   assert.ok(document.getElementById('budgetContent').innerHTML.includes('Budgeted Balance'));
 });
+
+test('reorders rows within a category', () => {
+  const { document } = createDom();
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Bread', cost: '5', paid: false, mode: 'fully-paid', runningTotal: '' }
+      ] }
+    ])
+  });
+
+  const window = {};
+  const navigator = {
+    serviceWorker: {
+      register() { return Promise.resolve({ addEventListener() {}, update() {} }); },
+      getRegistration() { return Promise.resolve(null); }
+    },
+    storage: {
+      persist() { return Promise.resolve(false); },
+      persisted() { return Promise.resolve(false); }
+    }
+  };
+
+  const context = vm.createContext({
+    console,
+    window,
+    document,
+    navigator,
+    localStorage: storage,
+    alert() {},
+    confirm() { return true; },
+    URL: { createObjectURL() { return 'blob://test'; }, revokeObjectURL() {} },
+    Blob: class Blob {},
+    FileReader: class FileReader {
+      readAsText() {}
+      set onload(value) { value({ target: { result: '{}' } }); }
+    },
+    setTimeout,
+    clearTimeout,
+    Date,
+    Math,
+    JSON,
+    parseFloat,
+    parseInt,
+    Array,
+    Object,
+    String,
+    Number,
+    Promise,
+    RegExp,
+    Boolean,
+    Error
+  });
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  vm.runInContext(source, context, { filename: 'app.js' });
+
+  context.moveRow(1, 1, -1);
+
+  const saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].expense, 'Bread');
+  assert.equal(saved[1].rows[1].expense, 'Milk');
+});
