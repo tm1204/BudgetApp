@@ -271,6 +271,8 @@ This triggers the service worker to clear old caches and lets the app detect new
 | v5.0.1 | Status header right-aligned; checkbox and running total inputs right-aligned; Balance renamed to Budgeted Balance; Income row menu limited to Remove Row only; export/import confirmation updated to explicitly include row modes, paid state, and running total values |
 | v5.1 | Category ellipsis updated to match row ellipsis; Protected/Unprotected moved into main menu as Month Protected/Unprotected; Set Month as Template moved into main menu; Permissions renamed to App Permissions; submenu back buttons added in the top-left corner; app version added as a greyed-out line at the bottom of menus; submenu icons reviewed and aligned with the app’s minimal line-icon theme |
 
+| v5.2.1 | Minor patch fixes and version bump to 5.2.1 |
+
 ---
 
 ## 🛠️ Built With

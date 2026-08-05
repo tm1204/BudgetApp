@@ -415,7 +415,7 @@ function toggleProtection() {
     renderMonthTabs();
   });
   openMainMenu();
-  setTimeout(() => closeSheet(), 220);
+  // setTimeout(() => closeSheet(), 220); // disabled to prevent automatic close on protected toggle
 }
 
 // ── Bottom Sheet (shared popup component) ────────────────────────────────────
