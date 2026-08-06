@@ -6,6 +6,16 @@ const vm = require('node:vm');
 
 const APP_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 
+// APP_VERSION is declared with `const` inside app.js, so it lives in the vm
+// context's lexical environment rather than as a property of the context's
+// global object — reading context.APP_VERSION from the host side would
+// silently be undefined (same reason context.pendingImportType doesn't work
+// below). Extracting it from source text is the only reliable way to know
+// what version the loaded app.js will compare itself against.
+const RUNNING_VERSION_MATCH = APP_SOURCE.match(/const APP_VERSION = '([^']+)'/);
+if (!RUNNING_VERSION_MATCH) throw new Error('Could not find APP_VERSION in app.js — did it move or get renamed?');
+const RUNNING_VERSION = RUNNING_VERSION_MATCH[1];
+
 // Storage mock. `failKeys` simulates a full/unavailable quota by throwing on
 // setItem for specific keys — this is how the "storage full" fixes are
 // exercised without needing a real browser quota to fill up.
@@ -51,10 +61,32 @@ function createDom() {
 // Builds a fresh vm context, loads app.js into it, and returns handles used
 // by the tests. Every test gets its own isolated context/storage so mutating
 // module-level state (currentYear, undo stacks, etc.) can't leak across tests.
-function loadApp({ storage, confirmReturns = true, promptReturns = null } = {}) {
+//
+// confirmReturns may be a plain boolean (same answer every time) or a
+// function(message) => boolean for tests that need to answer differently
+// across multiple confirm() calls (e.g. decline then accept).
+//
+// fetchVersionPayload, if provided, controls what the mocked fetch() resolves
+// with — used to simulate version.json reporting a specific remote version.
+// A plain object is returned for every call. A function is called fresh for
+// EACH call with a 1-based call count, letting a test give a different
+// answer to app.js's own automatic boot-time check (always call #1, fired
+// from renderApp() during vm.runInContext — before loadApp() even returns)
+// than to calls the test itself makes afterwards. Left undefined, fetch
+// always rejects (network unavailable), matching the original tests'
+// offline-safe default.
+//
+// registrationOverride controls what navigator.serviceWorker.getRegistration()
+// resolves to, e.g. { waiting: fakeWorker } to simulate an update already
+// sitting in the waiting state.
+function loadApp({ storage, confirmReturns = true, promptReturns = null, fetchVersionPayload, registrationOverride = null } = {}) {
   const { document } = createDom();
   const alerts = [];
   const confirms = [];
+  const reloads = [];
+  const swListeners = {};
+  const confirmFn = typeof confirmReturns === 'function' ? confirmReturns : () => confirmReturns;
+  let fetchCallCount = 0;
   // app.js constructs its own `new FileReader()` internally, so the content
   // it should "read" can't be passed in as a constructor arg — this holder
   // is captured by closure and mutated by importFile() right before the call
@@ -63,7 +95,11 @@ function loadApp({ storage, confirmReturns = true, promptReturns = null } = {}) 
   const navigator = {
     serviceWorker: {
       register() { return Promise.resolve({ addEventListener() {}, update() {} }); },
-      getRegistration() { return Promise.resolve(null); }
+      getRegistration() { return Promise.resolve(registrationOverride); },
+      // Captures listeners registered on the shared serviceWorker container
+      // (distinct from a single registration's own addEventListener above) —
+      // this is what reloadWithLatestServiceWorker() listens for 'controllerchange' on
+      addEventListener(event, cb) { (swListeners[event] = swListeners[event] || []).push(cb); }
     },
     storage: {
       persist() { return Promise.resolve(false); },
@@ -73,16 +109,24 @@ function loadApp({ storage, confirmReturns = true, promptReturns = null } = {}) 
 
   const context = vm.createContext({
     console,
-    window: {},
+    window: { location: { reload() { reloads.push(true); } } },
     document,
     navigator,
     localStorage: storage,
     alert(msg) { alerts.push(msg); },
-    confirm(msg) { confirms.push(msg); return confirmReturns; },
+    confirm(msg) { confirms.push(msg); return confirmFn(msg); },
     prompt() { return promptReturns; },
-    // app.js fetches version.json on every render; stub it as an always-failing
-    // network request (caught and ignored by checkForAppUpdate's .catch)
-    fetch() { return Promise.reject(new Error('fetch disabled in tests')); },
+    fetch() {
+      fetchCallCount++;
+      if (fetchVersionPayload !== undefined) {
+        const payload = typeof fetchVersionPayload === 'function' ? fetchVersionPayload(fetchCallCount) : fetchVersionPayload;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) });
+      }
+      // app.js fetches version.json on every render; default to an
+      // always-failing network request (caught and ignored by
+      // checkForAppUpdate's .catch) unless a test opts in above
+      return Promise.reject(new Error('fetch disabled in tests'));
+    },
     URL: { createObjectURL() { return 'blob://test'; }, revokeObjectURL() {} },
     Blob: class Blob {},
     FileReader: class FileReader {
@@ -107,7 +151,13 @@ function loadApp({ storage, confirmReturns = true, promptReturns = null } = {}) 
   });
 
   vm.runInContext(APP_SOURCE, context, { filename: 'app.js' });
-  return { context, document, alerts, confirms, fileContentHolder };
+  return { context, document, alerts, confirms, fileContentHolder, reloads, swListeners };
+}
+
+// Flushes pending microtasks (promise .then chains) without relying on a
+// fixed setTimeout delay racing real I/O.
+function flushMicrotasks() {
+  return new Promise(resolve => setTimeout(resolve, 0));
 }
 
 // Simulates picking a file for import. Goes through the real triggerImport()
@@ -344,4 +394,118 @@ test('service worker update handling does not throw when reg.installing is alrea
 
   assert.ok(updatefoundHandler, 'expected an updatefound listener to have been registered');
   assert.doesNotThrow(() => updatefoundHandler());
+});
+
+test('the menu displays the baked-in app version immediately, with no "Loading..." placeholder', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([{ name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }])
+  });
+  const { context, document } = loadApp({ storage });
+
+  context.openMainMenu();
+
+  const html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(/Version \d+\.\d+\.\d+/.test(html), 'expected a bare "Version X.Y.Z" with no leading v and no placeholder text');
+  assert.ok(!html.includes('Loading...'));
+});
+
+// Note on these update-check tests: app.js runs checkForAppUpdate() itself,
+// automatically, at boot (renderApp() -> checkForAppUpdate(), the last line
+// of app.js) — that call is already in flight by the time loadApp() returns,
+// as fetch call #1. Rather than fight that with timing assumptions, each
+// test either uses the boot call itself as "the first check" (it's a
+// perfectly real stand-in — that's literally the cold-start scenario the fix
+// targets), or uses fetchVersionPayload as a function keyed by call number
+// to give the boot call a non-event (matching version) and reserve the
+// mismatch for calls the test makes explicitly.
+
+test('checkForAppUpdate prompts on the very first check if the remote version differs (no silent baseline-learning)', async () => {
+  const storage = createStorage({});
+  // No explicit checkForAppUpdate() call here at all — the boot-time call
+  // IS the first-ever check, and is exactly the cold-start case this fixes:
+  // the old implementation used to silently learn '9.9.9' as its baseline
+  // on this very call and never prompt.
+  const { reloads, confirms } = loadApp({
+    storage,
+    confirmReturns: true,
+    fetchVersionPayload: { version: '9.9.9' }
+  });
+  await flushMicrotasks();
+
+  assert.equal(confirms.length, 1, 'expected exactly one confirm() prompt');
+  assert.ok(confirms[0].includes('9.9.9'));
+  assert.equal(reloads.length, 1, 'expected a reload once the (no-op) service worker handoff completed');
+});
+
+test('checkForAppUpdate does not prompt when the remote version matches the running bundle', async () => {
+  const storage = createStorage({});
+  const { confirms } = loadApp({ storage, fetchVersionPayload: { version: RUNNING_VERSION } });
+  await flushMicrotasks();
+
+  assert.equal(confirms.length, 0, 'no update available — must not prompt');
+});
+
+test('a mismatch detected by both the service worker and the version check only prompts once', async () => {
+  const storage = createStorage({});
+  // fetchVersionPayload gives the automatic boot-time check (call #1) a
+  // non-event so it can't race the explicit simulation below, then a real
+  // mismatch for any later call.
+  const { context, confirms } = loadApp({
+    storage,
+    confirmReturns: true,
+    fetchVersionPayload: (callNum) => ({ version: callNum === 1 ? RUNNING_VERSION : '9.9.9' })
+  });
+
+  // Simulates the service worker's own updatefound/statechange path noticing
+  // a deploy independently of the version.json check below
+  context.promptForReload('9.9.9', null);
+  // A later version.json check discovering the SAME update must not show a
+  // second dialog on top of the one just shown above
+  await context.checkForAppUpdate();
+  await flushMicrotasks();
+
+  assert.equal(confirms.length, 1, 'the second detection of the same update must not show a second dialog');
+});
+
+test('declining the reload prompt allows a later check to prompt again', () => {
+  // Drives promptForReload directly rather than through checkForAppUpdate(),
+  // so this test has nothing to do with fetch or the automatic boot-time
+  // check at all — no fetchVersionPayload is given, so that boot call's
+  // fetch() rejects immediately and its .catch() is a silent no-op,
+  // regardless of timing. That isolates this test to exactly the thing it's
+  // meant to verify: does declining reset the dedup flag for next time?
+  const answers = [false, true];
+  const { context, confirms } = loadApp({
+    storage: createStorage({}),
+    confirmReturns: () => answers.shift()
+  });
+
+  context.promptForReload('9.9.9', null); // declined
+  context.promptForReload('9.9.9', null); // a later detection of the same (or a further) update
+
+  assert.equal(confirms.length, 2, 'declining must reset the flag so a later detection can prompt again');
+});
+
+test('confirming a reload waits for the service worker to actually activate before reloading', async () => {
+  const fakeWaitingWorker = { postedMessages: [], postMessage(msg) { this.postedMessages.push(msg); } };
+  const storage = createStorage({});
+  // No explicit checkForAppUpdate() call — the automatic boot-time check
+  // (fetch call #1) is itself the mismatch detection under test here.
+  const { reloads, swListeners } = loadApp({
+    storage,
+    confirmReturns: true,
+    fetchVersionPayload: { version: '9.9.9' },
+    registrationOverride: { waiting: fakeWaitingWorker }
+  });
+  await flushMicrotasks();
+
+  assert.deepEqual(fakeWaitingWorker.postedMessages, ['SKIP_WAITING'], 'expected the waiting worker to be told to activate');
+  assert.equal(reloads.length, 0, 'must not reload before the new worker has actually taken control');
+
+  // Simulate the new worker finishing activation and taking over
+  assert.ok(swListeners.controllerchange && swListeners.controllerchange.length > 0, 'expected a controllerchange listener to have been registered');
+  swListeners.controllerchange.forEach(cb => cb());
+
+  assert.equal(reloads.length, 1, 'expected exactly one reload once control actually changed');
 });

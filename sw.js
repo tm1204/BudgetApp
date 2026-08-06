@@ -1,6 +1,6 @@
 // Cache name — bump this string with every release to force old caches
 // to be cleared and users to be prompted to refresh
-const CACHE_NAME = 'budget-app-v5.2.2';
+const CACHE_NAME = 'budget-app-v5.2.3';
 
 // All app assets cached for offline use
 const ASSETS = [
@@ -14,12 +14,23 @@ const ASSETS = [
   './Icons/icon-512.png'
 ];
 
-// Install — pre-cache all assets
+// Install — pre-cache all assets. Deliberately does NOT call skipWaiting()
+// here: activating immediately would let this worker take control of pages
+// that are still running the OLD app.js in memory, serving a mix of old
+// in-memory JS and newly-cached assets before the user ever agreed to
+// refresh. Instead this worker sits in "waiting" until app.js explicitly
+// tells it to activate (see the 'message' listener below), which only
+// happens once the user has confirmed the reload prompt.
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
   );
-  self.skipWaiting(); // activate immediately instead of waiting for old tabs to close
+});
+
+// Lets app.js hand control over to this worker only once the user has
+// confirmed they want to update, rather than activating unprompted.
+self.addEventListener('message', event => {
+  if (event.data === 'SKIP_WAITING') self.skipWaiting();
 });
 
 // Activate — delete any caches that don't match the current CACHE_NAME

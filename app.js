@@ -1,4 +1,10 @@
 // ── Config ───────────────────────────────────────────────────────────────────
+// Baked into this bundle at release time — the single baseline this running
+// copy of the app compares itself against. Keep in sync with version.json's
+// "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
+// "Versioning & Updates" for the full release checklist).
+const APP_VERSION = '5.2.3';
+
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i); // current year + 4 ahead
@@ -28,7 +34,6 @@ const DEFAULT_CATEGORIES = [
 
 let currentYear  = CURRENT_YEAR;
 let currentMonth = new Date().getMonth();
-let currentAppVersion = null;
 
 // Restore last viewed month/year if the app was previously opened —
 // keeps the user on whatever month they were looking at when they last
@@ -63,6 +68,51 @@ const ICON_UNPROTECTED = `<svg width="20" height="20" viewBox="0 0 24 24" fill="
 
 const ICON_BACK = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>`;
 
+// ── Update Prompt / Reload Coordination ──────────────────────────────────────
+// Both the service worker's own lifecycle events and the version.json check
+// below can independently notice the same deploy — this flag makes sure only
+// one confirm() dialog is ever shown per detected update. Declining resets it
+// so a later check (next visibility change, etc.) can prompt again.
+let updatePromptShown = false;
+
+function promptForReload(newVersion, waitingWorker) {
+  if (updatePromptShown) return;
+  updatePromptShown = true;
+  const label = newVersion ? ` (${newVersion})` : '';
+  if (confirm(`A new version of BudgetApp${label} is available. Refresh now?`)) {
+    reloadWithLatestServiceWorker(waitingWorker);
+  } else {
+    updatePromptShown = false;
+  }
+}
+
+// Reloading immediately after confirm() used to race the service worker:
+// sw.js called skipWaiting()/clients.claim() on its own schedule, so the new
+// worker could take control of the still-open page — serving a mix of old
+// in-memory JS and new cached assets — before the user had even clicked
+// "Refresh". This instead tells the (already-installed) worker to activate
+// only now, and waits for it to actually take control before reloading, so
+// the reload always lands on a fully-consistent new version.
+function reloadWithLatestServiceWorker(waitingWorker) {
+  const proceed = (worker) => {
+    if (!worker) { window.location.reload(); return; }
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    });
+    worker.postMessage('SKIP_WAITING');
+    // Fallback in case controllerchange never fires for some reason
+    setTimeout(() => { if (!reloaded) { reloaded = true; window.location.reload(); } }, 2000);
+  };
+
+  if (waitingWorker) { proceed(waitingWorker); return; }
+  navigator.serviceWorker.getRegistration()
+    .then(reg => proceed(reg && reg.waiting))
+    .catch(() => window.location.reload());
+}
+
 // ── Service Worker ──────────────────────────────────────────────────────────
 // updateViaCache: 'none' prevents the browser's HTTP cache from serving a stale
 // sw.js file, which was previously blocking update detection on iOS Safari
@@ -76,9 +126,7 @@ if ('serviceWorker' in navigator) {
       if (!nw) return;
       nw.addEventListener('statechange', () => {
         if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-          if (confirm('A new version of BudgetApp is available. Refresh now?')) {
-            window.location.reload();
-          }
+          promptForReload(null, nw);
         }
       });
     });
@@ -98,9 +146,10 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ── Explicit App Version Check ──────────────────────────────────────────────
-// Uses version.json as the single app-version source of truth. This works
-// alongside the service worker, but does not rely solely on service worker
-// lifecycle events for update detection on iOS.
+// Uses version.json as the single remote-version source of truth, compared
+// against the APP_VERSION baked into this running bundle (see Config, top of
+// file). This works alongside the service worker, but does not rely solely
+// on service worker lifecycle events for update detection on iOS.
 function fetchVersionInfo() {
   return fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })
     .then(res => {
@@ -113,19 +162,8 @@ function checkForAppUpdate() {
   return fetchVersionInfo()
     .then(info => {
       if (!info || !info.version) return;
-
-      // First successful load establishes the current app version baseline
-      if (!currentAppVersion) {
-        currentAppVersion = info.version;
-        return;
-      }
-
-      // If remote version differs from the baseline version currently loaded
-      // in memory, prompt the user and hard reload the app shell.
-      if (info.version !== currentAppVersion) {
-        if (confirm(`A new version of BudgetApp (${info.version}) is available. Refresh now?`)) {
-          window.location.reload();
-        }
+      if (info.version !== APP_VERSION) {
+        promptForReload(info.version);
       }
     })
     .catch(() => {
@@ -518,7 +556,7 @@ function openMainMenu() {
       <span class="sheet-option-sub">${redoCount > 0 ? redoCount : ''}</span>
     </button>
 
-    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
+    <div class="sheet-version-line">Version ${APP_VERSION}</div>
   `;
   openSheet(html);
 }
@@ -542,7 +580,7 @@ function openExportMenu() {
       <span class="sheet-option-icon">${ICON_EXPORT}</span> Export Entire Budget History
     </button>
 
-    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
+    <div class="sheet-version-line">Version ${APP_VERSION}</div>
   `;
   openSheet(html);
 }
@@ -618,7 +656,7 @@ function openImportMenu() {
       <span class="sheet-option-icon">${ICON_IMPORT}</span> Import Budget History
     </button>
 
-    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
+    <div class="sheet-version-line">Version ${APP_VERSION}</div>
   `;
   openSheet(html);
 }
@@ -713,7 +751,7 @@ function openPermissionsMenu() {
       <span class="permission-badge">Checking...</span>
     </div>
 
-    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
+    <div class="sheet-version-line">Version ${APP_VERSION}</div>
   `;
   openSheet(html);
 
@@ -787,7 +825,7 @@ function openCategoryMenu(catIdx) {
       <span class="sheet-option-icon">🗑️</span> Delete
     </button>
 
-    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
+    <div class="sheet-version-line">Version ${APP_VERSION}</div>
   `;
   openSheet(html);
 }
@@ -829,7 +867,7 @@ function sheetColour(catIdx) {
 
     <div class="colour-grid">${swatches}</div>
 
-    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
+    <div class="sheet-version-line">Version ${APP_VERSION}</div>
   `;
   openSheet(html);
 }
@@ -939,7 +977,7 @@ function openRowMenu(catIdx, rowIdx) {
       <span class="sheet-option-icon">▼</span> Move Down
     </button>
 
-    <div class="sheet-version-line">Version ${currentAppVersion || 'Loading...'}</div>
+    <div class="sheet-version-line">Version ${APP_VERSION}</div>
   `;
   openSheet(html);
 }

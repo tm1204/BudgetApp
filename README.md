@@ -139,7 +139,9 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
 ### 🔄 Auto-Update
 - Service worker caches all app assets for offline use
 - `updateViaCache: 'none'` ensures the browser's HTTP cache never serves a stale service worker file
-- `version.json` is used as the explicit app-version source of truth for update detection
+- `version.json` is compared against the `APP_VERSION` baked into the running copy of `app.js` — not a value learned from the first check of the session, so a stale cached bundle is always detected, even on a cold start
+- The service worker and the `version.json` check can both notice the same deploy independently, but only ever show a single "Refresh now?" prompt for it; declining allows a later check to prompt again
+- Confirming the prompt tells the waiting service worker to activate and waits for it to actually take control before reloading, so the page never reloads into a mix of old in-memory JS and newly-cached assets
 - Checks for updates every time the app becomes visible
 - Prompts user to refresh when a new version is available
 
@@ -229,28 +231,56 @@ Export, Import, App Permissions, Undo, Redo, Rename, Protected/Unprotected, and 
 
 ## 🚀 Versioning & Updates
 
-When deploying a new version, update:
+There is no build step for this project — the three files below are updated
+by hand, and all three must move together or update detection breaks (either
+silently, or by re-showing the refresh prompt forever):
 
-1. `sw.js`
-2. `version.json`
+1. `app.js` — the `APP_VERSION` constant near the top of the file. This is
+   what the running page actually compares itself against, so it's the one
+   that matters most for update detection.
+2. `version.json` — the `version` field. This is the file fetched fresh
+   (bypassing the HTTP cache) to check for a new release; it should always
+   match `APP_VERSION`.
+3. `sw.js` — the `CACHE_NAME` constant, which forces old caches to be
+   cleared. It doesn't have to match the other two exactly (it only needs to
+   change on every release, which is why it keeps its own `v` prefix as a
+   cache-key naming convention), but keeping it aligned makes debugging a lot
+   easier.
 
-Example:
+`APP_VERSION` and `version.json`'s `version` field intentionally have **no
+`v` prefix** (`5.2.3`, not `v5.2.3`) — the app's own menus already display
+the word "Version" next to it, and doubling that up as "Version v5.2.3" reads
+redundantly.
 
-    const CACHE_NAME = 'budget-app-v5.2';
+Example — bumping to 5.2.4:
 
-and
+    const APP_VERSION = '5.2.4';          // app.js
 
-    {
-      "version": "v5.2"
-    }
+    { "version": "5.2.4" }                // version.json
 
-This triggers the service worker to clear old caches and lets the app detect new releases via `version.json`. Recommended versioning convention:
+    const CACHE_NAME = 'budget-app-v5.2.4'; // sw.js
+
+Recommended versioning convention:
 
 | Change Type | Example |
 |---|---|
-| Major new features | budget-app-v6 |
-| Minor additions | budget-app-v5.2 |
-| Bug fixes | budget-app-v5.1.1 |
+| Major new features | 6.0 |
+| Minor additions | 5.2 |
+| Bug fixes | 5.1.1 |
+
+### 📝 Release checklist (SOP for this project)
+
+Every change to this app — however small — follows the same process:
+
+1. Implement the change, keeping the existing formatting and comment style
+   (comments explain *why*, not *what*; no comment where the code is
+   already self-explanatory)
+2. Add or update tests in `tests/app.test.js` covering the change
+3. Sense-check the full diff before bumping anything
+4. Bump the version in all three files listed above
+5. Update this README where it describes user-facing behaviour, and add a
+   row to the Version History table below
+6. Commit and push
 
 ---
 
@@ -278,6 +308,7 @@ This triggers the service worker to clear old caches and lets the app detect new
 | v5.2 | Main menu labels updated for current-month template/protection actions, submenu back navigation refined, and row reordering added within categories |
 | v5.2.1 | Minor patch fixes and version bump to 5.2.1 |
 | v5.2.2 | Bug fixes — "In Account" no longer displays overspend as a positive amount; a full storage quota now warns and preserves existing data instead of silently discarding the edit; Undo/Redo no longer errors after restoring a snapshot; History import only writes recognised app data keys; import file picker now resets correctly after a cancelled or invalid import; category colours from imported/legacy data are validated before rendering; cost and running total values are HTML-escaped when rendered; removing the last row in a category now shows feedback instead of doing nothing; update detection no longer errors if the service worker has already advanced past the "installing" state |
+| v5.2.3 | Bug fixes — the app now compares against its own baked-in `APP_VERSION` instead of learning a baseline from the first check, so a stale cached bundle is reliably detected even on a cold start; the service worker and version.json checks now share a single reload prompt instead of potentially showing two; the service worker no longer activates and claims open pages before the user has confirmed the refresh, which could previously serve a mix of old in-memory JS and newly-cached assets; the menu now shows the running version instantly with no "Loading..." placeholder, and without the redundant "Version v" wording |
 
 ---
 
