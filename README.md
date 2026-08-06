@@ -118,6 +118,7 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
 - **Export Entire Budget History** — downloads a JSON file containing all saved months and protection flags across all years (undo/redo history excluded)
 - **Import a Single Month Template** — overwrites the currently selected month only, with confirmation prompt
 - **Import Budget History** — overwrites all matching saved months/settings from the file, with confirmation prompt
+- Only recognised app data keys (budget months and protection flags) are ever written by a history import — unrelated or unexpected entries in the file are skipped and reported, rather than being written to storage
 - All imports are recorded on the Undo stack
 - Export / Import submenu icons are aligned with the app’s existing line-icon theme
 
@@ -175,6 +176,8 @@ All budget data is stored in the browser's localStorage — no server, no accoun
 | lastViewedMonth | The last month/year tab that was open — used to restore your place when reopening the app |
 
 ⚠️ Clearing Safari's website data will erase all budget entries, undo/redo history, and the remembered last-viewed month. Use Export regularly for a true backup, and grant Persistent Storage permission via the App Permissions menu to reduce automatic data loss.
+
+If on-device storage is full, the app now shows a clear warning instead of silently discarding the change — your edit is either rejected with an explanation, or saved with a note that it couldn't be added to Undo history.
 
 ---
 
@@ -260,7 +263,6 @@ This triggers the service worker to clear old caches and lets the app detect new
 | v3.0 | Service worker added, column alignment fixed, expense column tripled |
 | v3.1 | Smart month propagation, icons moved to /Icons folder |
 | v3.2 | Propagation fix — load-time inheritance via findNearestSource |
-| v5.2 | Main menu labels updated for current-month template/protection actions, submenu back navigation refined, and row reordering added within categories |
 | v3.3 | Propagation fix — cleanup of empty inherited placeholders written by old code |
 | v3.4 | Replaced auto-propagation with Set as Template button, Protected toggle, auto-protect on edit, lock icons on tabs |
 | v4.0 | App name and icon in header, category colours, ⋯ ellipsis menu (rename/colour/move/delete), add custom categories, donut pie chart, visibility-change update check |
@@ -275,6 +277,7 @@ This triggers the service worker to clear old caches and lets the app detect new
 | v5.1 | Category ellipsis updated to match row ellipsis; Protected/Unprotected moved into main menu as Month Protected/Unprotected; Set Month as Template moved into main menu; Permissions renamed to App Permissions; submenu back buttons added in the top-left corner; app version added as a greyed-out line at the bottom of menus; submenu icons reviewed and aligned with the app’s minimal line-icon theme |
 | v5.2 | Main menu labels updated for current-month template/protection actions, submenu back navigation refined, and row reordering added within categories |
 | v5.2.1 | Minor patch fixes and version bump to 5.2.1 |
+| v5.2.2 | Bug fixes — "In Account" no longer displays overspend as a positive amount; a full storage quota now warns and preserves existing data instead of silently discarding the edit; Undo/Redo no longer errors after restoring a snapshot; History import only writes recognised app data keys; import file picker now resets correctly after a cancelled or invalid import; category colours from imported/legacy data are validated before rendering; cost and running total values are HTML-escaped when rendered; removing the last row in a category now shows feedback instead of doing nothing; update detection no longer errors if the service worker has already advanced past the "installing" state |
 
 ---
 

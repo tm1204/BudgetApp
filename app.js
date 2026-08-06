@@ -69,7 +69,11 @@ const ICON_BACK = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" s
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
     reg.addEventListener('updatefound', () => {
-      const nw = reg.installing;
+      // reg.installing can already be null here if the worker advanced to
+      // 'waiting' before this handler ran — fall back to reg.waiting so the
+      // listener below isn't attached to a null reference
+      const nw = reg.installing || reg.waiting;
+      if (!nw) return;
       nw.addEventListener('statechange', () => {
         if (nw.state === 'installed' && navigator.serviceWorker.controller) {
           if (confirm('A new version of BudgetApp is available. Refresh now?')) {
@@ -158,7 +162,7 @@ function isProtected(year, month) {
 }
 
 function setProtected(year, month, value) {
-  localStorage.setItem(protectionKey(year, month), value ? 'true' : 'false');
+  return safeSetItem(protectionKey(year, month), value ? 'true' : 'false');
 }
 
 function isPastMonth(year, month) {
@@ -193,6 +197,26 @@ function safeParseJSON(value, fallback = null) {
   }
 }
 
+// Wraps localStorage.setItem so a full/unavailable storage quota can never
+// throw mid-mutation and silently drop the caller's change. Returns false
+// (instead of throwing) so callers can decide how to inform the user.
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (err) {
+    console.error(`BudgetApp: failed to write "${key}" to localStorage`, err);
+    return false;
+  }
+}
+
+// Only accepts strict 6-digit hex colours. Category colour is interpolated
+// directly into inline style/onclick attributes when rendering, so imported
+// data must be constrained to a safe shape rather than merely HTML-escaped.
+function sanitizeColour(colour) {
+  return typeof colour === 'string' && /^#[0-9a-fA-F]{6}$/.test(colour) ? colour : null;
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -207,7 +231,7 @@ function escapeHtml(value) {
 // app (e.g. from the iPhone home screen after being minimized) returns the
 // user to where they left off, rather than resetting to today's month.
 function saveLastViewedMonth(year, month) {
-  localStorage.setItem('lastViewedMonth', JSON.stringify({ year, month }));
+  safeSetItem('lastViewedMonth', JSON.stringify({ year, month }));
 }
 
 function loadLastViewedMonth() {
@@ -225,14 +249,14 @@ function getUndoStack() {
   return safeParseJSON(raw, []);
 }
 function setUndoStack(stack) {
-  localStorage.setItem('__undoStack', JSON.stringify(stack));
+  return safeSetItem('__undoStack', JSON.stringify(stack));
 }
 function getRedoStack() {
   const raw = localStorage.getItem('__redoStack');
   return safeParseJSON(raw, []);
 }
 function setRedoStack(stack) {
-  localStorage.setItem('__redoStack', JSON.stringify(stack));
+  return safeSetItem('__redoStack', JSON.stringify(stack));
 }
 
 // Captures every budget/protection key currently in localStorage
@@ -245,7 +269,9 @@ function snapshotState() {
   return snap;
 }
 
-// Wipes all current budget/protection keys and replaces them with a snapshot
+// Wipes all current budget/protection keys and replaces them with a snapshot.
+// Returns false if any key failed to write, so the caller can warn the user
+// that the restored state may be incomplete rather than assuming success.
 function restoreState(snapshot) {
   const toRemove = [];
   for (let i = 0; i < localStorage.length; i++) {
@@ -253,23 +279,33 @@ function restoreState(snapshot) {
     if (isRelevantKey(key)) toRemove.push(key);
   }
   toRemove.forEach(k => localStorage.removeItem(k));
-  Object.keys(snapshot).forEach(k => localStorage.setItem(k, snapshot[k]));
+  let allOk = true;
+  Object.keys(snapshot).forEach(k => { if (!safeSetItem(k, snapshot[k])) allOk = false; });
+  return allOk;
 }
 
 // Must be called BEFORE a mutation happens — records the state as it was
-// immediately prior to the action about to be performed
+// immediately prior to the action about to be performed.
+// Returns false if the snapshot couldn't be stored (e.g. storage quota full),
+// so the caller can still apply the mutation but warn that it can't be undone.
 function recordUndo(description) {
   const stack = getUndoStack();
   stack.push({ desc: description, snapshot: snapshotState() });
   while (stack.length > UNDO_LIMIT) stack.shift(); // cap at UNDO_LIMIT, drop oldest
-  setUndoStack(stack);
+  const recorded = setUndoStack(stack);
   setRedoStack([]); // any new action invalidates the redo stack (standard behaviour)
+  return recorded;
 }
 
-// Wraps a mutating function with automatic undo recording
+// Wraps a mutating function with automatic undo recording. The mutation
+// always runs even if the undo snapshot couldn't be saved — losing undo
+// history is far less harmful than silently dropping the user's edit.
 function withUndo(description, mutateFn) {
-  recordUndo(description);
+  const recorded = recordUndo(description);
   mutateFn();
+  if (!recorded) {
+    alert('Your change was saved, but device storage is too full to keep an Undo record for it. Export a backup soon and consider freeing up storage.');
+  }
 }
 
 function undoLastAction() {
@@ -284,12 +320,11 @@ function undoLastAction() {
   while (redoStack.length > UNDO_LIMIT) redoStack.shift();
   setRedoStack(redoStack);
 
-  restoreState(entry.snapshot);
+  const restored = restoreState(entry.snapshot);
   closeSheet();
   renderMonthTabs();
   renderBudget();
-  renderActionBar();
-  alert(`Undone: ${entry.desc}`);
+  alert(restored ? `Undone: ${entry.desc}` : `Undone: ${entry.desc} (storage is full — restore may be incomplete)`);
 }
 
 function redoLastAction() {
@@ -304,12 +339,11 @@ function redoLastAction() {
   while (undoStack.length > UNDO_LIMIT) undoStack.shift();
   setUndoStack(undoStack);
 
-  restoreState(entry.snapshot);
+  const restored = restoreState(entry.snapshot);
   closeSheet();
   renderMonthTabs();
   renderBudget();
-  renderActionBar();
-  alert(`Redone: ${entry.desc}`);
+  alert(restored ? `Redone: ${entry.desc}` : `Redone: ${entry.desc} (storage is full — restore may be incomplete)`);
 }
 
 // ── Data ────────────────────────────────────────────────────────────────────
@@ -342,7 +376,10 @@ function loadData(year, month) {
         ...normalizedCat,
         name: typeof normalizedCat.name === 'string' && normalizedCat.name.trim() ? normalizedCat.name : fallbackCat.name,
         isIncome: idx === 0,
-        colour: normalizedCat.colour || (idx === 0 ? INCOME_COLOUR : PALETTE[idx % PALETTE.length]),
+        // sanitizeColour rejects anything that isn't a plain 6-digit hex value —
+        // colour is later interpolated into inline style/onclick attributes, so
+        // imported/legacy data can't be used to break out of those attributes
+        colour: sanitizeColour(normalizedCat.colour) || (idx === 0 ? INCOME_COLOUR : PALETTE[idx % PALETTE.length]),
         rows: Array.isArray(normalizedCat.rows) ? normalizedCat.rows.map(normalizeRow) : fallbackCat.rows.map(r => ({ ...r }))
       };
     });
@@ -350,12 +387,22 @@ function loadData(year, month) {
   return DEFAULT_CATEGORIES.map(c => ({ ...c, rows: c.rows.map(r => ({ ...r })) }));
 }
 
+// Returns false if the write failed (e.g. storage quota full). Callers still
+// re-render after this — renderBudget() re-reads from localStorage, so on
+// failure the UI correctly reverts to the last value that was actually
+// persisted rather than showing an edit that was never saved.
 function saveData(year, month, data) {
-  localStorage.setItem(storageKey(year, month), JSON.stringify(data));
+  const ok = safeSetItem(storageKey(year, month), JSON.stringify(data));
+  if (!ok) {
+    alert('Could not save your change — device storage is full. Export a backup and free up storage, then try again.');
+    renderMonthTabs();
+    return false;
+  }
   // Any manual save automatically protects the month from being
   // overwritten by Set as Template propagation
   setProtected(year, month, true);
   renderMonthTabs();
+  return true;
 }
 
 // ── Template Propagation ─────────────────────────────────────────────────────
@@ -363,47 +410,39 @@ function setAsTemplate() {
   if (!confirm(`Copy ${MONTHS[currentMonth]} ${currentYear} to all unprotected following months?`)) return;
   withUndo(`Set as Template from ${MONTHS[currentMonth]} ${currentYear}`, () => {
     const data = loadData(currentYear, currentMonth);
+    const templatedRows = data.map(cat => ({
+      ...cat,
+      rows: cat.rows.map(r => ({
+        expense: r.expense,
+        cost: r.cost,
+        paid: false,
+        mode: r.mode ?? 'fully-paid',
+        runningTotal: ''
+      }))
+    }));
     let count = 0;
+    let failCount = 0;
 
     // Remaining months in the current year
     for (let m = currentMonth + 1; m < 12; m++) {
       if (!isProtected(currentYear, m)) {
-        localStorage.setItem(storageKey(currentYear, m), JSON.stringify(
-          data.map(cat => ({
-            ...cat,
-            rows: cat.rows.map(r => ({
-              expense: r.expense,
-              cost: r.cost,
-              paid: false,
-              mode: r.mode ?? 'fully-paid',
-              runningTotal: ''
-            }))
-          }))
-        ));
-        count++;
+        if (safeSetItem(storageKey(currentYear, m), JSON.stringify(templatedRows))) count++;
+        else failCount++;
       }
     }
     // All months in all future years — enables multi-year roll forward
     for (let y = currentYear + 1; y <= CURRENT_YEAR + 4; y++) {
       for (let m = 0; m < 12; m++) {
         if (!isProtected(y, m)) {
-          localStorage.setItem(storageKey(y, m), JSON.stringify(
-            data.map(cat => ({
-              ...cat,
-              rows: cat.rows.map(r => ({
-                expense: r.expense,
-                cost: r.cost,
-                paid: false,
-                mode: r.mode ?? 'fully-paid',
-                runningTotal: ''
-              }))
-            }))
-          ));
-          count++;
+          if (safeSetItem(storageKey(y, m), JSON.stringify(templatedRows))) count++;
+          else failCount++;
         }
       }
     }
-    alert(`Done! ${count} month${count !== 1 ? 's' : ''} updated.`);
+    alert(
+      `Done! ${count} month${count !== 1 ? 's' : ''} updated.` +
+      (failCount > 0 ? ` ${failCount} month${failCount !== 1 ? 's' : ''} could not be saved — device storage is full.` : '')
+    );
     renderBudget();
   });
 }
@@ -620,22 +659,39 @@ function handleImportFile(event) {
           alert('This file is not a valid budget history export.');
           return;
         }
-        const keyCount = Object.keys(parsed.entries).length;
-        if (!confirm(`Import full history? This will overwrite ${keyCount} saved month(s)/setting(s).`)) return;
+        // Only budget_*/protected_* keys are ever imported — never trust the
+        // file to write arbitrary localStorage keys (e.g. __undoStack, or an
+        // unrelated key from a tampered/foreign export)
+        const importableKeys = Object.keys(parsed.entries).filter(isRelevantKey);
+        const skippedCount = Object.keys(parsed.entries).length - importableKeys.length;
+        if (!confirm(`Import full history? This will overwrite ${importableKeys.length} saved month(s)/setting(s).`)) return;
 
+        let failCount = 0;
         withUndo('Imported full budget history', () => {
-          Object.keys(parsed.entries).forEach(key => {
-            localStorage.setItem(key, JSON.stringify(parsed.entries[key]));
+          importableKeys.forEach(key => {
+            if (!safeSetItem(key, JSON.stringify(parsed.entries[key]))) failCount++;
           });
           renderMonthTabs();
           renderBudget();
         });
-        alert('Import complete.');
+        alert(
+          'Import complete.' +
+          (skippedCount > 0 ? ` ${skippedCount} unrecognised entr${skippedCount !== 1 ? 'ies' : 'y'} in the file were skipped.` : '') +
+          (failCount > 0 ? ` ${failCount} entr${failCount !== 1 ? 'ies' : 'y'} could not be saved — device storage is full.` : '')
+        );
       }
     } catch (err) {
       alert('Could not read this file. Please make sure it is a valid BudgetApp export.');
+    } finally {
+      // Always reset, including on early returns above, so re-selecting the
+      // same file after a cancelled/failed import still fires a change event
+      event.target.value = '';
+      pendingImportType = null;
     }
-    event.target.value = ''; // reset so the same file can be re-selected later
+  };
+  reader.onerror = () => {
+    alert('Could not read this file from disk.');
+    event.target.value = '';
     pendingImportType = null;
   };
   reader.readAsText(file);
@@ -1113,6 +1169,10 @@ function renderBudget() {
   const data = loadData(currentYear, currentMonth);
   const { income, totalExpenses, actualSpent, balance, inAccount } = calcSummary(data);
   const balanceCls = balance >= 0 ? 'positive' : 'negative';
+  // fmt() always returns an absolute value, so the minus sign has to be
+  // added explicitly here — In Account can go negative (overspend) just
+  // like Budgeted Balance can, and was previously always shown as positive
+  const inAccountCls = inAccount < 0 ? 'negative' : 'in-account';
 
   // Summary bar
   let html = `
@@ -1131,7 +1191,7 @@ function renderBudget() {
       </div>
       <div class="summary-item">
         <span class="label">In Account</span>
-        <span class="value in-account">${fmt(inAccount)}</span>
+        <span class="value ${inAccountCls}">${inAccount < 0 ? '-' : ''}${fmt(inAccount)}</span>
       </div>
     </div>`;
 
@@ -1181,6 +1241,11 @@ function renderBudget() {
 
       const checkedAttr = row.paid ? 'checked' : '';
       const safeExpense = escapeHtml(row.expense);
+      // cost/runningTotal are stored as raw strings and can originate from an
+      // imported file rather than this app's own number inputs — escape them
+      // before interpolating into a value="..." attribute
+      const safeCost = escapeHtml(row.cost);
+      const safeRunningTotal = escapeHtml(row.runningTotal);
 
       let statusCell = '';
       if (cat.isIncome) {
@@ -1193,7 +1258,7 @@ function renderBudget() {
               type="number"
               class="running-total-input ${overBudget ? 'over-budget' : ''}"
               placeholder="0.00"
-              value="${row.runningTotal}"
+              value="${safeRunningTotal}"
               onchange="updateRow(${catIdx},${rowIdx},'runningTotal',this.value)"
             />
           </div>`;
@@ -1212,7 +1277,7 @@ function renderBudget() {
             onchange="updateRow(${catIdx},${rowIdx},'expense',this.value)" />
         </div>
         <div class="cell-cost">
-          <input type="number" placeholder="0.00" value="${row.cost}"
+          <input type="number" placeholder="0.00" value="${safeCost}"
             onchange="updateRow(${catIdx},${rowIdx},'cost',this.value)" />
         </div>
         <div class="cell-remaining">
@@ -1281,6 +1346,9 @@ function removeRow(catIdx, rowIdx) {
       renderBudget();
     });
     closeSheet();
+  } else {
+    closeSheet();
+    alert('Cannot remove the last row in a category. Delete the category instead if it\'s no longer needed.');
   }
 }
 
