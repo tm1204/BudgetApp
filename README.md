@@ -8,7 +8,7 @@ A lightweight personal budgeting Progressive Web App (PWA) built with vanilla HT
 
 https://tm1204.github.io/BudgetApp/
 
----
+--- 
 
 ## 📱 Install on iPhone
 
