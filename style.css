@@ -142,8 +142,12 @@ main { padding: 16px; }
   background: none;
   border: none;
   font-size: 20px;
+  font-weight: 700;
+  /* Buttons don't inherit color/font-weight from the page by default in
+     browsers (the same reason .cell-expense/.cell-cost inputs needed an
+     explicit colour) — matches .section-header's fixed text colour exactly */
+  color: #3a3a3c;
   cursor: pointer;
-  /* No colour here — inherits from .section-header, see .section-total above */
   padding: 0 4px;
   line-height: 1;
   flex-shrink: 0;

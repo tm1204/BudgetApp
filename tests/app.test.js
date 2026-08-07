@@ -577,13 +577,70 @@ test('category header colour is fixed inline to just the background, not the tex
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
       { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-      { name: 'Food', colour: '#A0522D', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+      // Deliberately not one of PALETTE_COLOUR_MIGRATIONS' old values — this
+      // test is about inline style shape, not the migration (see its own
+      // dedicated test below)
+      { name: 'Food', colour: '#2ECC71', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
     ])
   });
   const { document } = loadApp({ storage });
 
   const html = document.getElementById('budgetContent').innerHTML;
-  assert.match(html, /style="background:#A0522D;"/, 'expected only a background colour inline, no per-category text colour');
+  assert.match(html, /style="background:#2ECC71;"/, 'expected only a background colour inline, no per-category text colour');
+});
+
+test('categories saved with an old (pre-contrast-fix) palette colour are migrated to the new value on load', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      // lowercase, to also exercise the case-insensitive migration lookup
+      { name: 'Vehicles', colour: '#3498db', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+    ])
+  });
+  const { document } = loadApp({ storage });
+
+  const html = document.getElementById('budgetContent').innerHTML;
+  assert.match(html, /style="background:#5DADE2;"/, 'expected the old Blue value to be migrated to its new contrast-safe equivalent');
+  assert.ok(!html.toUpperCase().includes('#3498DB'), 'the old colour value must not still appear anywhere in the rendered output');
+});
+
+test('consecutive PALETTE colours (including the wrap from last back to first) are far apart in hue', () => {
+  // Regression for "consecutive categories shouldn't get similar pie-chart
+  // colours" — DEFAULT_CATEGORIES and getNextColour() both hand out PALETTE
+  // in array order, so array-adjacent entries are exactly the case that
+  // matters. Threshold (90°) is a safety margin under the verified
+  // worst-case (~106°) when this ordering was computed, not the bar itself.
+  const paletteMatch = APP_SOURCE.match(/const PALETTE = \[([\s\S]*?)\];/);
+  assert.ok(paletteMatch, 'expected to find the PALETTE array in app.js');
+  const hexes = [...paletteMatch[1].matchAll(/#[0-9a-fA-F]{6}/g)].map(m => m[0]);
+  assert.equal(hexes.length, 16, 'expected 16 palette colours');
+
+  function hexToHue(hex) {
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const d = max - min;
+    if (d === 0) return 0;
+    let h;
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    return h < 0 ? h + 360 : h;
+  }
+  function hueGap(h1, h2) {
+    const d = Math.abs(h1 - h2) % 360;
+    return Math.min(d, 360 - d);
+  }
+
+  const hues = hexes.map(hexToHue);
+  const n = hues.length;
+  for (let i = 0; i < n; i++) {
+    const gap = hueGap(hues[i], hues[(i + 1) % n]);
+    assert.ok(gap >= 90, `palette[${i}] (${hexes[i]}) and palette[${(i + 1) % n}] (${hexes[(i + 1) % n]}) are only ${gap.toFixed(1)}° apart in hue`);
+  }
 });
 
 test('pressing Escape closes an open bottom sheet, other keys do not', () => {

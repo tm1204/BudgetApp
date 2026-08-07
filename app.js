@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.4';
+const APP_VERSION = '5.5';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -12,13 +12,37 @@ const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i); // current ye
 const INCOME_COLOUR = '#e5e5ea'; // Income's default fixed colour, independently selectable from expense palette
 const UNDO_LIMIT = 10; // maximum undo/redo steps retained
 
-// 16-colour palette used for expense category headers and pie chart slices
+// 16-colour palette used for expense category headers and pie chart slices.
+// Two properties are deliberately engineered, not just picked by eye:
+// - every colour clears WCAG AA (4.5:1) against the header's fixed black
+//   text (#3a3a3c) — 10 of the original 16 didn't
+// - colours are ordered so consecutive entries are far apart in hue (worst
+//   case ~106° apart, verified computationally), since PALETTE order is what
+//   both DEFAULT_CATEGORIES and getNextColour() hand out to adjacent pie
+//   chart slices
 const PALETTE = [
-  '#FF6B6B', '#2ECC71', '#3498DB', '#9B59B6',
-  '#FF9F43', '#1ABC9C', '#FF6EB4', '#F39C12',
-  '#5C6BC0', '#A3CB38', '#E84393', '#4A90D9',
-  '#6D9E73', '#A0522D', '#708090', '#F1C40F'
+  '#A3CB38', '#5DADE2', '#FF7E7E', '#1ABC9C', // Lime, Blue, Coral Red, Teal
+  '#D89676', '#9BA7B2', '#FF9F43', '#74AAE2', // Brown, Slate, Orange, Steel Blue
+  '#F39C12', '#99A2D8', '#F1C40F', '#C096D1', // Amber, Indigo, Yellow, Purple
+  '#86AF8B', '#FF76B8', '#2ECC71', '#F081B7'  // Sage, Pink, Emerald, Rose
 ];
+
+// Old (pre-contrast-fix) palette hex values, mapped to their new equivalent.
+// Applied when loading category data so categories created before this fix
+// automatically pick up the corrected colour next time they're opened,
+// rather than only affecting categories created from now on.
+const PALETTE_COLOUR_MIGRATIONS = {
+  '#FF6B6B': '#FF7E7E', // Coral Red
+  '#3498DB': '#5DADE2', // Blue
+  '#9B59B6': '#C096D1', // Purple
+  '#FF6EB4': '#FF76B8', // Pink
+  '#5C6BC0': '#99A2D8', // Indigo
+  '#E84393': '#F081B7', // Rose
+  '#4A90D9': '#74AAE2', // Steel Blue
+  '#6D9E73': '#86AF8B', // Sage
+  '#A0522D': '#D89676', // Brown
+  '#708090': '#9BA7B2'  // Slate
+};
 
 // Default category set used when a month has no saved data yet
 const DEFAULT_CATEGORIES = [
@@ -255,6 +279,15 @@ function sanitizeColour(colour) {
   return typeof colour === 'string' && /^#[0-9a-fA-F]{6}$/.test(colour) ? colour : null;
 }
 
+// Looks up PALETTE_COLOUR_MIGRATIONS case-insensitively — stored/imported
+// data could have any casing even though the app itself always writes
+// uppercase hex — falling back to the original value unchanged if it isn't
+// one of the old colours being migrated.
+function migrateOldPaletteColour(colour) {
+  if (typeof colour !== 'string') return colour;
+  return PALETTE_COLOUR_MIGRATIONS[colour.toUpperCase()] || colour;
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -416,8 +449,10 @@ function loadData(year, month) {
         isIncome: idx === 0,
         // sanitizeColour rejects anything that isn't a plain 6-digit hex value —
         // colour is later interpolated into inline style/onclick attributes, so
-        // imported/legacy data can't be used to break out of those attributes
-        colour: sanitizeColour(normalizedCat.colour) || (idx === 0 ? INCOME_COLOUR : PALETTE[idx % PALETTE.length]),
+        // imported/legacy data can't be used to break out of those attributes.
+        // migrateOldPaletteColour runs first so categories saved before the
+        // contrast fix pick up their corrected colour automatically.
+        colour: sanitizeColour(migrateOldPaletteColour(normalizedCat.colour)) || (idx === 0 ? INCOME_COLOUR : PALETTE[idx % PALETTE.length]),
         rows: Array.isArray(normalizedCat.rows) ? normalizedCat.rows.map(normalizeRow) : fallbackCat.rows.map(r => ({ ...r }))
       };
     });

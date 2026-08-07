@@ -90,7 +90,7 @@ Each row can operate in one of two modes:
 
 ### 🌗 Appearance
 - **Dark mode** — follows the system/browser setting automatically (`prefers-color-scheme`), no in-app toggle
-- **Category header text** — always black, regardless of the category's own colour, for a consistent look across every category
+- **Category header text** — always black and bold, regardless of the category's own colour, for a consistent look across every category — the ⋮ menu button matches the same colour and weight
 
 ### ♿ Accessibility
 - Bottom sheet is a proper dialog (`role="dialog"`, `aria-modal`) and can be dismissed with **Escape**, same as tapping the overlay
@@ -208,28 +208,30 @@ If on-device storage is full, the app now shows a clear warning instead of silen
 
 ## 🎨 Category Colours
 
-A curated palette of 16 colours is available for category headers and the pie chart:
+A curated palette of 16 colours is available for category headers and the pie chart. All 16 clear WCAG AA contrast (4.5:1) against the header's fixed black text, and are ordered so that consecutive entries are far apart in hue (worst case ~106° apart) — since this is the order both the default categories and new custom categories are assigned in, and adjacent pie chart slices are exactly where similar colours are hardest to tell apart:
 
 | # | Colour | Hex |
 |---|---|---|
-| 1 | Coral Red | #FF6B6B |
-| 2 | Emerald | #2ECC71 |
-| 3 | Blue | #3498DB |
-| 4 | Purple | #9B59B6 |
-| 5 | Orange | #FF9F43 |
-| 6 | Teal | #1ABC9C |
-| 7 | Pink | #FF6EB4 |
-| 8 | Amber | #F39C12 |
-| 9 | Indigo | #5C6BC0 |
-| 10 | Lime | #A3CB38 |
-| 11 | Rose | #E84393 |
-| 12 | Steel Blue | #4A90D9 |
-| 13 | Sage | #6D9E73 |
-| 14 | Brown | #A0522D |
-| 15 | Slate | #708090 |
-| 16 | Yellow | #F1C40F |
+| 1 | Lime | #A3CB38 |
+| 2 | Blue | #5DADE2 |
+| 3 | Coral Red | #FF7E7E |
+| 4 | Teal | #1ABC9C |
+| 5 | Brown | #D89676 |
+| 6 | Slate | #9BA7B2 |
+| 7 | Orange | #FF9F43 |
+| 8 | Steel Blue | #74AAE2 |
+| 9 | Amber | #F39C12 |
+| 10 | Indigo | #99A2D8 |
+| 11 | Yellow | #F1C40F |
+| 12 | Purple | #C096D1 |
+| 13 | Sage | #86AF8B |
+| 14 | Pink | #FF76B8 |
+| 15 | Emerald | #2ECC71 |
+| 16 | Rose | #F081B7 |
 
 New categories automatically cycle through the palette in order, skipping colours already in use. Income's colour is independently selectable and defaults to a fixed light grey (#e5e5ea), kept separate from the expense palette.
+
+Categories saved with one of the 10 pre-fix colours are migrated to their corrected equivalent automatically the next time that month is opened — no manual re-colouring needed.
 
 ---
 
@@ -323,6 +325,7 @@ Every change to this app — however small — follows the same process:
 | v5.3.1 | Bug fix — the per-row ⋮ menu button kept its light-mode text colour in dark mode, nearly invisible against the dark card background; added a test that scans for this class of miss (any selector with fixed dark text in light mode that isn't also overridden in the dark-mode block) rather than just the one instance |
 | v5.3.2 | Bug fix — the expense name and cost inputs on every row had no text colour set at all and relied on the browser's default (black) rather than inheriting from the page, so they stayed black in dark mode regardless of the previous fix; both now explicitly inherit the page's text colour |
 | v5.4 | Category header text is now always black instead of switching between dark/light per category — the previous adaptive logic worked, but a single standard colour was preferred for consistency; `pickTextColour()` removed |
+| v5.5 | 10 of 16 category colours didn't actually meet WCAG AA contrast against the now-fixed black header text (checked properly this time, not just the rough heuristic from v5.4) — those 10 were lightened to clear it, and all 16 were reordered so consecutive entries are far apart in hue, since that's the order adjacent pie chart slices get. Categories saved with an old colour are migrated automatically on load. The category ⋮ menu button now explicitly matches the header text's colour and weight — it turns out buttons don't inherit `color`/`font-weight` from the page by default any more reliably than inputs do |
 
 ---
 
