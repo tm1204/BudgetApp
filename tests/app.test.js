@@ -608,6 +608,18 @@ test('index.html and manifest.json declare the iOS/PWA one-liners this release a
   assert.equal(manifest.orientation, 'portrait');
 });
 
+test('row expense/cost inputs have an explicit text colour instead of relying on browser default inheritance', () => {
+  // Regression, distinct from the .row-ellipsis-btn one above: <input>
+  // elements don't inherit `color` from the page by default in browsers,
+  // unlike regular text — these two had no color property at all (not even
+  // a wrong hardcoded one), so they silently rendered in the browser's
+  // default text colour regardless of dark mode, while everything else
+  // correctly followed the app's own light/dark colour.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+  assert.match(css, /\.cell-expense input\[type="text"\]\s*\{[^}]*color:\s*inherit/);
+  assert.match(css, /\.cell-cost input\[type="number"\]\s*\{[^}]*color:\s*inherit/);
+});
+
 test('every fixed dark/black text colour outside the category header is overridden in dark mode', () => {
   // Regression: .row-ellipsis-btn (the per-row ⋮ menu button) kept its
   // light-mode #3a3a3c text colour in dark mode, where .section's

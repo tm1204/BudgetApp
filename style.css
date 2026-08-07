@@ -181,6 +181,10 @@ main { padding: 16px; }
   outline: none;
   font-size: 12px;
   background: transparent;
+  /* Inputs don't inherit color from the page by default in browsers (unlike
+     regular text) — without this, they render in the browser's default text
+     colour regardless of body's colour, which is invisible in dark mode */
+  color: inherit;
   width: 100%;
   min-width: 0;
   padding: 4px 0;
@@ -193,6 +197,7 @@ main { padding: 16px; }
   outline: none;
   font-size: 12px;
   background: transparent;
+  color: inherit; /* see .cell-expense input above */
   width: 100%;
   min-width: 0;
   padding: 4px 0;
