@@ -402,13 +402,18 @@ main { padding: 16px; }
 .toast {
   position: fixed;
   left: 50%;
-  /* Messages got longer once "Set as Template" started reporting a skipped
-     count alongside the updated count — at the old 32px/380px, that message
-     wraps to two lines sitting right against the bottom edge. More
-     clearance from the edge, and a bit more width so fewer messages wrap
-     at all. */
-  bottom: 72px;
-  transform: translate(-50%, 12px);
+  /* Anchored below the sticky header/month-tabs rather than near the
+     bottom edge. Bottom anchoring kept colliding with real content: the
+     toast is position:fixed, so it renders at the same screen position
+     regardless of scroll, and the pie chart + legend (the last thing on
+     the page) frequently ends up exactly there — ticking a row's paid
+     checkbox, one of the most common actions, is exactly when this hit.
+     A bigger bottom offset (previous attempt) only changed distance from
+     the screen edge, not overlap with scrolled content, so it didn't
+     actually fix it. Below the sticky header has no such content to
+     collide with. */
+  top: 140px;
+  transform: translate(-50%, -12px);
   max-width: min(92vw, 440px);
   background: #1c1c1e;
   color: #fff;
