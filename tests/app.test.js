@@ -311,6 +311,59 @@ test('undo and redo run without throwing and revert/reapply correctly', () => {
 
   assert.ok(toasts.some(t => t.startsWith('Undone:')));
   assert.ok(toasts.some(t => t.startsWith('Redone:')));
+  // Undo/redo is a single stack shared across every month — since the
+  // toast doesn't necessarily describe whatever month is on screen when you
+  // press it, the affected month/year must be named explicitly
+  assert.ok(toasts.some(t => t.includes('(July 2026)')), 'expected the affected month/year to appear in the toast');
+});
+
+test('importing a full history is not scoped to the currently-viewed month in its undo description', () => {
+  // Unlike a single-month edit, a history import can touch months across
+  // every year — labelling it with just the currently-viewed month/year
+  // would misrepresent what the undo entry actually reverts
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([{ name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }])
+  });
+  const app = loadApp({ storage, confirmReturns: true });
+
+  const payload = {
+    version: 1,
+    type: 'history',
+    entries: {
+      budget_2027_0: [{ name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'New', cost: '5', paid: false, mode: 'fully-paid', runningTotal: '' }] }]
+    }
+  };
+  importFile(app, 'history', JSON.stringify(payload));
+
+  const stack = app.context.getUndoStack();
+  const lastEntry = stack[stack.length - 1];
+  assert.equal(lastEntry.desc, 'Imported full budget history');
+});
+
+test('Set as Template reports both updated and skipped (protected) month counts', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 0 }), // January
+    budget_2026_0: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+    ]),
+    protected_2026_1: 'true' // protect February specifically
+  });
+  const { context, toasts } = loadApp({ storage, confirmReturns: true });
+
+  context.setAsTemplate();
+
+  // Computed the same way setAsTemplate() does, rather than a hardcoded
+  // count that would go stale as real time passes: 11 remaining months in
+  // 2026 minus the 1 protected one, plus every month in the real current
+  // year+1 through current-year+4 (the app's own year window)
+  const realCurrentYear = new Date().getFullYear();
+  const yearsAhead = (realCurrentYear + 4) - 2027 + 1;
+  const expectedUpdated = (11 - 1) + yearsAhead * 12;
+
+  const toast = toasts[toasts.length - 1];
+  assert.ok(toast.includes(`${expectedUpdated} months updated`), `expected ${expectedUpdated} months updated, got: "${toast}"`);
+  assert.ok(toast.includes('1 protected month skipped'), `expected a skipped-month count, got: "${toast}"`);
 });
 
 test('removing the last row in a category is rejected with feedback instead of doing nothing', () => {

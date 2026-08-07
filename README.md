@@ -116,6 +116,7 @@ Each row can operate in one of two modes:
 - **Auto-protect** — any manual edit to a month automatically protects it from being overwritten
 - **🔒 indicator** — protected months show a lock icon on the month tab
 - Propagation skips protected months but continues to unprotected months beyond them
+- **Skip count reported** — "Set as Template" reports how many months were updated and how many were skipped because they're protected, alongside the 🔒 icons on the month tabs
 
 ### 📖 Main Menu
 Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trigger button:
@@ -146,10 +147,10 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
 
 ### ↩️ Undo / Redo
 - Covers all mutating actions: row edits, add/remove row, row mode switches, category rename/colour/move/delete/add, Set Month as Template, Month Protected/Unprotected, and imports
-- Stores the last **10 actions**
+- Stores the last **10 actions**, shared across every month — not scoped per month
 - Undo stack is cleared of redo history whenever a new action is performed after an undo (standard undo/redo behaviour)
 - Persists across page refresh — stored in localStorage
-- Each undo/redo shows a plain-language description of the action reverted or reapplied, as a brief toast rather than a blocking dialog
+- Each undo/redo shows a plain-language description of the action reverted or reapplied, as a brief toast rather than a blocking dialog — including which month/year it affected, since the shared stack means that's not always whatever month is currently on screen (a full history import is the one exception, since it isn't scoped to a single month at all)
 
 ### 🔐 App Permissions
 - Renamed from **Permissions** to **App Permissions**
@@ -341,6 +342,7 @@ Every change to this app — however small — follows the same process:
 | v5.4 | Category header text is now always black instead of switching between dark/light per category — the previous adaptive logic worked, but a single standard colour was preferred for consistency; `pickTextColour()` removed |
 | v5.5 | 10 of 16 category colours didn't actually meet WCAG AA contrast against the now-fixed black header text (checked properly this time, not just the rough heuristic from v5.4) — those 10 were lightened to clear it, and all 16 were reordered so consecutive entries are far apart in hue, since that's the order adjacent pie chart slices get. Categories saved with an old colour are migrated automatically on load. The category ⋮ menu button now explicitly matches the header text's colour and weight — it turns out buttons don't inherit `color`/`font-weight` from the page by default any more reliably than inputs do |
 | v5.6 | Android support: added dedicated maskable icons (192/512, logo padded to fit any adaptive-icon mask shape rather than reusing the existing icon, which had too little margin), both wired into the manifest and precached by the service worker; `orientation`/`theme-color`/`mobile-web-app-capable` from earlier releases were already cross-platform. Added a standard favicon `<link>`, which was missing entirely. README now documents an Android install flow alongside iPhone's |
+| v5.7 | Undo/redo toasts now name the month/year the action affected, since the undo stack is shared across every month and the action being reverted isn't necessarily for whatever month is currently on screen (full history imports are the one exception — not scoped to a single month at all). "Set as Template" now reports how many months were skipped for being protected, alongside the updated count — previously gave no signal that any propagation had been skipped |
 
 ---
 

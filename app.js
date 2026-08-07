@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.6';
+const APP_VERSION = '5.7';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -371,8 +371,17 @@ function recordUndo(description) {
 // Wraps a mutating function with automatic undo recording. The mutation
 // always runs even if the undo snapshot couldn't be saved — losing undo
 // history is far less harmful than silently dropping the user's edit.
-function withUndo(description, mutateFn) {
-  const recorded = recordUndo(description);
+//
+// Undo/redo is a single stack shared across every month, so the action an
+// undo/redo actually reverts can belong to a different month than whichever
+// one happens to be on screen when you press it — the affected month is
+// appended to the toast so that's never ambiguous. Pass { scoped: false }
+// for actions that aren't about "the currently viewed month" at all (e.g.
+// importing a full multi-year history), where naming just one month would
+// be misleading rather than clarifying.
+function withUndo(description, mutateFn, { scoped = true } = {}) {
+  const fullDescription = scoped ? `${description} (${MONTHS[currentMonth]} ${currentYear})` : description;
+  const recorded = recordUndo(fullDescription);
   mutateFn();
   if (!recorded) {
     showToast('Your change was saved, but device storage is too full to keep an Undo record for it. Export a backup soon and consider freeing up storage.');
@@ -481,7 +490,9 @@ function saveData(year, month, data) {
 // ── Template Propagation ─────────────────────────────────────────────────────
 function setAsTemplate() {
   if (!confirm(`Copy ${MONTHS[currentMonth]} ${currentYear} to all unprotected following months?`)) return;
-  withUndo(`Set as Template from ${MONTHS[currentMonth]} ${currentYear}`, () => {
+  // Month/year is appended automatically by withUndo() now — no need to
+  // repeat it here
+  withUndo('Set as Template', () => {
     const data = loadData(currentYear, currentMonth);
     const templatedRows = data.map(cat => ({
       ...cat,
@@ -495,12 +506,15 @@ function setAsTemplate() {
     }));
     let count = 0;
     let failCount = 0;
+    let skippedCount = 0;
 
     // Remaining months in the current year
     for (let m = currentMonth + 1; m < 12; m++) {
       if (!isProtected(currentYear, m)) {
         if (safeSetItem(storageKey(currentYear, m), JSON.stringify(templatedRows))) count++;
         else failCount++;
+      } else {
+        skippedCount++;
       }
     }
     // All months in all future years — enables multi-year roll forward
@@ -509,11 +523,14 @@ function setAsTemplate() {
         if (!isProtected(y, m)) {
           if (safeSetItem(storageKey(y, m), JSON.stringify(templatedRows))) count++;
           else failCount++;
+        } else {
+          skippedCount++;
         }
       }
     }
     showToast(
       `Done! ${count} month${count !== 1 ? 's' : ''} updated.` +
+      (skippedCount > 0 ? ` ${skippedCount} protected month${skippedCount !== 1 ? 's' : ''} skipped.` : '') +
       (failCount > 0 ? ` ${failCount} month${failCount !== 1 ? 's' : ''} could not be saved — device storage is full.` : '')
     );
     renderBudget();
@@ -522,7 +539,7 @@ function setAsTemplate() {
 
 function toggleProtection() {
   const willProtect = !isProtected(currentYear, currentMonth);
-  withUndo(`${willProtect ? 'Protected' : 'Unprotected'} ${MONTHS[currentMonth]} ${currentYear}`, () => {
+  withUndo(willProtect ? 'Protected' : 'Unprotected', () => {
     setProtected(currentYear, currentMonth, willProtect);
     renderMonthTabs();
   });
@@ -743,7 +760,7 @@ function handleImportFile(event) {
         }
         if (!confirm(`Import this template into ${MONTHS[currentMonth]} ${currentYear}? This will overwrite existing data for this month.`)) return;
 
-        withUndo(`Imported template into ${MONTHS[currentMonth]} ${currentYear}`, () => {
+        withUndo('Imported template', () => {
           saveData(currentYear, currentMonth, parsed.data);
           if (typeof parsed.protected === 'boolean') setProtected(currentYear, currentMonth, parsed.protected);
           renderBudget();
@@ -764,13 +781,15 @@ function handleImportFile(event) {
         if (!confirm(`Import full history? This will overwrite ${importableKeys.length} saved month(s)/setting(s).`)) return;
 
         let failCount = 0;
+        // scoped:false — this can touch months across every year, so
+        // naming just the currently-viewed one would be misleading
         withUndo('Imported full budget history', () => {
           importableKeys.forEach(key => {
             if (!safeSetItem(key, JSON.stringify(parsed.entries[key]))) failCount++;
           });
           renderMonthTabs();
           renderBudget();
-        });
+        }, { scoped: false });
         showToast(
           'Import complete.' +
           (skippedCount > 0 ? ` ${skippedCount} unrecognised entr${skippedCount !== 1 ? 'ies' : 'y'} in the file were skipped.` : '') +
