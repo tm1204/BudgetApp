@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.2.3';
+const APP_VERSION = '5.3';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -342,13 +342,13 @@ function withUndo(description, mutateFn) {
   const recorded = recordUndo(description);
   mutateFn();
   if (!recorded) {
-    alert('Your change was saved, but device storage is too full to keep an Undo record for it. Export a backup soon and consider freeing up storage.');
+    showToast('Your change was saved, but device storage is too full to keep an Undo record for it. Export a backup soon and consider freeing up storage.');
   }
 }
 
 function undoLastAction() {
   const undoStack = getUndoStack();
-  if (undoStack.length === 0) { closeSheet(); alert('Nothing to undo.'); return; }
+  if (undoStack.length === 0) { closeSheet(); showToast('Nothing to undo.'); return; }
   const entry = undoStack.pop();
   setUndoStack(undoStack);
 
@@ -362,12 +362,12 @@ function undoLastAction() {
   closeSheet();
   renderMonthTabs();
   renderBudget();
-  alert(restored ? `Undone: ${entry.desc}` : `Undone: ${entry.desc} (storage is full — restore may be incomplete)`);
+  showToast(restored ? `Undone: ${entry.desc}` : `Undone: ${entry.desc} (storage is full — restore may be incomplete)`);
 }
 
 function redoLastAction() {
   const redoStack = getRedoStack();
-  if (redoStack.length === 0) { closeSheet(); alert('Nothing to redo.'); return; }
+  if (redoStack.length === 0) { closeSheet(); showToast('Nothing to redo.'); return; }
   const entry = redoStack.pop();
   setRedoStack(redoStack);
 
@@ -381,7 +381,7 @@ function redoLastAction() {
   closeSheet();
   renderMonthTabs();
   renderBudget();
-  alert(restored ? `Redone: ${entry.desc}` : `Redone: ${entry.desc} (storage is full — restore may be incomplete)`);
+  showToast(restored ? `Redone: ${entry.desc}` : `Redone: ${entry.desc} (storage is full — restore may be incomplete)`);
 }
 
 // ── Data ────────────────────────────────────────────────────────────────────
@@ -432,7 +432,7 @@ function loadData(year, month) {
 function saveData(year, month, data) {
   const ok = safeSetItem(storageKey(year, month), JSON.stringify(data));
   if (!ok) {
-    alert('Could not save your change — device storage is full. Export a backup and free up storage, then try again.');
+    showToast('Could not save your change — device storage is full. Export a backup and free up storage, then try again.');
     renderMonthTabs();
     return false;
   }
@@ -477,7 +477,7 @@ function setAsTemplate() {
         }
       }
     }
-    alert(
+    showToast(
       `Done! ${count} month${count !== 1 ? 's' : ''} updated.` +
       (failCount > 0 ? ` ${failCount} month${failCount !== 1 ? 's' : ''} could not be saved — device storage is full.` : '')
     );
@@ -505,6 +505,30 @@ function openSheet(html) {
 function closeSheet() {
   document.getElementById('bottomSheet').classList.remove('open');
   document.getElementById('sheetOverlay').classList.remove('open');
+}
+
+// Lets the bottom sheet (now marked role="dialog") be dismissed with Escape,
+// same as tapping the overlay — only acts while a sheet is actually open
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('bottomSheet').classList.contains('open')) {
+    closeSheet();
+  }
+});
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+// Replaces the native alert dialog for routine feedback (undo/redo, import
+// results, save warnings) — a blocking dialog on every single undo/redo was
+// the most repeated friction point in the app. Destructive confirmations
+// and text entry still use the native confirm/prompt dialogs for now.
+let toastTimer = null;
+
+function showToast(message) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
 }
 
 // ── Main Menu ────────────────────────────────────────────────────────────────
@@ -679,7 +703,7 @@ function handleImportFile(event) {
 
       if (pendingImportType === 'month') {
         if (parsed.type !== 'month' || !parsed.data) {
-          alert('This file is not a valid single month template.');
+          showToast('This file is not a valid single month template.');
           return;
         }
         if (!confirm(`Import this template into ${MONTHS[currentMonth]} ${currentYear}? This will overwrite existing data for this month.`)) return;
@@ -689,12 +713,12 @@ function handleImportFile(event) {
           if (typeof parsed.protected === 'boolean') setProtected(currentYear, currentMonth, parsed.protected);
           renderBudget();
         });
-        alert('Import complete.');
+        showToast('Import complete.');
       }
 
       if (pendingImportType === 'history') {
         if (parsed.type !== 'history' || !parsed.entries) {
-          alert('This file is not a valid budget history export.');
+          showToast('This file is not a valid budget history export.');
           return;
         }
         // Only budget_*/protected_* keys are ever imported — never trust the
@@ -712,14 +736,14 @@ function handleImportFile(event) {
           renderMonthTabs();
           renderBudget();
         });
-        alert(
+        showToast(
           'Import complete.' +
           (skippedCount > 0 ? ` ${skippedCount} unrecognised entr${skippedCount !== 1 ? 'ies' : 'y'} in the file were skipped.` : '') +
           (failCount > 0 ? ` ${failCount} entr${failCount !== 1 ? 'ies' : 'y'} could not be saved — device storage is full.` : '')
         );
       }
     } catch (err) {
-      alert('Could not read this file. Please make sure it is a valid BudgetApp export.');
+      showToast('Could not read this file. Please make sure it is a valid BudgetApp export.');
     } finally {
       // Always reset, including on early returns above, so re-selecting the
       // same file after a cancelled/failed import still fires a change event
@@ -728,7 +752,7 @@ function handleImportFile(event) {
     }
   };
   reader.onerror = () => {
-    alert('Could not read this file from disk.');
+    showToast('Could not read this file from disk.');
     event.target.value = '';
     pendingImportType = null;
   };
@@ -1146,6 +1170,45 @@ function calcSummary(data) {
   };
 }
 
+// Computes the per-row "Remaining" display and per-category section totals
+// for the currently loaded data. Shared between the full render and the
+// lightweight post-edit DOM patch below, so the running-balance math only
+// lives in one place. rowsByCat[catIdx][rowIdx] mirrors data's own shape,
+// for O(1) lookup rather than searching a flat list while rendering.
+function computeRowDisplays(data, income) {
+  const sectionTotals = data.map(cat => cat.rows.reduce((sum, r) => sum + (parseFloat(r.cost) || 0), 0));
+  const rowsByCat = [];
+  let runningRemaining = income;
+
+  data.forEach(cat => {
+    const catRows = cat.rows.map(row => {
+      if (cat.isIncome) {
+        return { remDisplay: fmt(parseFloat(row.cost) || 0), remCls: 'positive' };
+      }
+      runningRemaining -= getBudgetEffect(row);
+      return {
+        remDisplay: (runningRemaining < 0 ? '-' : '') + fmt(runningRemaining),
+        remCls: runningRemaining >= 0 ? 'positive' : 'negative'
+      };
+    });
+    rowsByCat.push(catRows);
+    if (cat.isIncome) runningRemaining = income;
+  });
+
+  return { sectionTotals, rowsByCat };
+}
+
+// Picks readable header text (dark or light) for a given background colour,
+// since category colours are user-selectable and a fixed text colour reads
+// poorly against darker palette entries (e.g. brown, slate)
+function pickTextColour(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) || 0;
+  const g = parseInt(hex.slice(3, 5), 16) || 0;
+  const b = parseInt(hex.slice(5, 7), 16) || 0;
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+  return brightness >= 128 ? '#1c1c1e' : '#f2f2f7';
+}
+
 // ── Render ───────────────────────────────────────────────────────────────────
 function renderApp() {
   renderYearSelect();
@@ -1205,40 +1268,42 @@ function switchMonth(m) {
 
 function renderBudget() {
   const data = loadData(currentYear, currentMonth);
-  const { income, totalExpenses, actualSpent, balance, inAccount } = calcSummary(data);
+  const { income, totalExpenses, balance, inAccount } = calcSummary(data);
   const balanceCls = balance >= 0 ? 'positive' : 'negative';
   // fmt() always returns an absolute value, so the minus sign has to be
   // added explicitly here — In Account can go negative (overspend) just
   // like Budgeted Balance can, and was previously always shown as positive
   const inAccountCls = inAccount < 0 ? 'negative' : 'in-account';
+  const { sectionTotals, rowsByCat } = computeRowDisplays(data, income);
 
-  // Summary bar
+  // Summary bar — each value has a stable id so updateComputedValues() can
+  // patch just these numbers after a row edit, without rebuilding the page
   let html = `
     <div class="summary-bar">
       <div class="summary-item">
         <span class="label">Income</span>
-        <span class="value">${fmt(income)}</span>
+        <span class="value" id="summary-income">${fmt(income)}</span>
       </div>
       <div class="summary-item">
         <span class="label">Total Expenses</span>
-        <span class="value">${fmt(totalExpenses)}</span>
+        <span class="value" id="summary-expenses">${fmt(totalExpenses)}</span>
       </div>
       <div class="summary-item">
         <span class="label">Budgeted Balance</span>
-        <span class="value ${balanceCls}">${balance < 0 ? '-' : ''}${fmt(balance)}</span>
+        <span class="value ${balanceCls}" id="summary-balance">${balance < 0 ? '-' : ''}${fmt(balance)}</span>
       </div>
       <div class="summary-item">
         <span class="label">In Account</span>
-        <span class="value ${inAccountCls}">${inAccount < 0 ? '-' : ''}${fmt(inAccount)}</span>
+        <span class="value ${inAccountCls}" id="summary-inaccount">${inAccount < 0 ? '-' : ''}${fmt(inAccount)}</span>
       </div>
     </div>`;
 
-  // Running remaining balance, deducted category by category, row by row
-  let runningRemaining = income;
-
   data.forEach((cat, catIdx) => {
-    const sectionTotal = cat.rows.reduce((sum, r) => sum + (parseFloat(r.cost) || 0), 0);
-    const headerStyle  = `background:${cat.colour};`;
+    // Category colour is user-selectable, so a fixed text colour can end up
+    // unreadable against darker palette entries — pick per-category instead.
+    // .section-total and .ellipsis-btn have no colour of their own in CSS so
+    // they inherit this via normal cascade.
+    const headerStyle = `background:${cat.colour}; color:${pickTextColour(cat.colour)};`;
 
     html += `
     <div class="section">
@@ -1247,8 +1312,8 @@ function renderBudget() {
           <span>${escapeHtml(cat.name)}</span>
         </div>
         <div class="section-header-right">
-          <span class="section-total">${fmt(sectionTotal)}</span>
-          <button class="ellipsis-btn" onclick="openCategoryMenu(${catIdx})">⋮</button>
+          <span class="section-total" id="section-total-${catIdx}">${fmt(sectionTotals[catIdx])}</span>
+          <button class="ellipsis-btn" onclick="openCategoryMenu(${catIdx})" aria-label="${escapeHtml(cat.name)} options">⋮</button>
         </div>
       </div>
       <div class="col-headers">
@@ -1263,19 +1328,7 @@ function renderBudget() {
       const cost = parseFloat(row.cost) || 0;
       const mode = row.mode ?? 'fully-paid';
       const runningTotal = parseFloat(row.runningTotal) || 0;
-      const budgetEffect = getBudgetEffect(row);
-
-      let remDisplay, remCls;
-
-      if (cat.isIncome) {
-        // Income rows simply display their own value as "remaining"
-        remDisplay = fmt(cost);
-        remCls     = 'positive';
-      } else {
-        runningRemaining -= budgetEffect;
-        remDisplay = (runningRemaining < 0 ? '-' : '') + fmt(runningRemaining);
-        remCls     = runningRemaining >= 0 ? 'positive' : 'negative';
-      }
+      const { remDisplay, remCls } = rowsByCat[catIdx][rowIdx];
 
       const checkedAttr = row.paid ? 'checked' : '';
       const safeExpense = escapeHtml(row.expense);
@@ -1294,16 +1347,18 @@ function renderBudget() {
           <div class="cell-paid">
             <input
               type="number"
+              id="runtotal-${catIdx}-${rowIdx}"
               class="running-total-input ${overBudget ? 'over-budget' : ''}"
               placeholder="0.00"
               value="${safeRunningTotal}"
+              aria-label="Running total"
               onchange="updateRow(${catIdx},${rowIdx},'runningTotal',this.value)"
             />
           </div>`;
       } else {
         statusCell = `
           <div class="cell-paid">
-            <input type="checkbox" ${checkedAttr}
+            <input type="checkbox" ${checkedAttr} aria-label="Paid"
               onchange="updateRow(${catIdx},${rowIdx},'paid',this.checked)" />
           </div>`;
       }
@@ -1311,35 +1366,86 @@ function renderBudget() {
       html += `
       <div class="budget-row">
         <div class="cell-expense">
-          <input type="text" placeholder="Expense name" value="${safeExpense}"
+          <input type="text" placeholder="Expense name" value="${safeExpense}" aria-label="Expense name"
             onchange="updateRow(${catIdx},${rowIdx},'expense',this.value)" />
         </div>
         <div class="cell-cost">
-          <input type="number" placeholder="0.00" value="${safeCost}"
+          <input type="number" placeholder="0.00" value="${safeCost}" aria-label="Cost"
             onchange="updateRow(${catIdx},${rowIdx},'cost',this.value)" />
         </div>
         <div class="cell-remaining">
-          <span class="remaining ${remCls}">${remDisplay}</span>
+          <span class="remaining ${remCls}" id="remaining-${catIdx}-${rowIdx}">${remDisplay}</span>
         </div>
         ${statusCell}
         <div class="cell-remove">
-          <button class="row-ellipsis-btn" onclick="openRowMenu(${catIdx},${rowIdx})">⋮</button>
+          <button class="row-ellipsis-btn" onclick="openRowMenu(${catIdx},${rowIdx})" aria-label="Row options">⋮</button>
         </div>
       </div>`;
     });
 
-    // Reset running remaining back to income once Income category is done
-    if (cat.isIncome) runningRemaining = income;
-
     html += `<button class="add-btn" onclick="addRow(${catIdx})">+ Add row</button></div>`;
   });
 
-  // Pie chart — hidden automatically by renderChart() if no expense data exists
-  html += renderChart(data);
+  // Pie chart — hidden automatically by renderChart() if no expense data
+  // exists. Wrapped so updateComputedValues() can refresh just this subtree.
+  html += `<div id="chartContainer">${renderChart(data)}</div>`;
 
   html += `<button class="add-category-btn" onclick="addCategory()">+ Add Category</button>`;
 
   document.getElementById('budgetContent').innerHTML = html;
+}
+
+// Patches just the numbers that change as a result of editing a row's value
+// (Remaining column, section totals, summary bar, over-budget flag, pie
+// chart) without touching any input element. Editing a field only ever
+// fires on blur (onchange), so the input the user just used already shows
+// exactly what they typed — rebuilding the whole page here would destroy
+// and recreate every input's DOM node for no visual benefit, which is what
+// used to cause focus/keyboard loss when moving straight to the next field.
+function updateComputedValues() {
+  const data = loadData(currentYear, currentMonth);
+  const { income, totalExpenses, balance, inAccount } = calcSummary(data);
+  const balanceCls = balance >= 0 ? 'positive' : 'negative';
+  const inAccountCls = inAccount < 0 ? 'negative' : 'in-account';
+  const { sectionTotals, rowsByCat } = computeRowDisplays(data, income);
+
+  setText('summary-income', fmt(income));
+  setText('summary-expenses', fmt(totalExpenses));
+  setTextAndClass('summary-balance', (balance < 0 ? '-' : '') + fmt(balance), `value ${balanceCls}`);
+  setTextAndClass('summary-inaccount', (inAccount < 0 ? '-' : '') + fmt(inAccount), `value ${inAccountCls}`);
+
+  data.forEach((cat, catIdx) => {
+    setText(`section-total-${catIdx}`, fmt(sectionTotals[catIdx]));
+
+    cat.rows.forEach((row, rowIdx) => {
+      const { remDisplay, remCls } = rowsByCat[catIdx][rowIdx];
+      setTextAndClass(`remaining-${catIdx}-${rowIdx}`, remDisplay, `remaining ${remCls}`);
+
+      if ((row.mode ?? 'fully-paid') === 'running-total') {
+        const cost = parseFloat(row.cost) || 0;
+        const runningTotal = parseFloat(row.runningTotal) || 0;
+        toggleClass(`runtotal-${catIdx}-${rowIdx}`, 'over-budget', runningTotal > cost);
+      }
+    });
+  });
+
+  const chartEl = document.getElementById('chartContainer');
+  if (chartEl) chartEl.innerHTML = renderChart(data);
+}
+
+function setText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function setTextAndClass(id, text, className) {
+  const el = document.getElementById(id);
+  if (el) { el.textContent = text; el.className = className; }
+}
+
+function toggleClass(id, className, active) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle(className, active);
 }
 
 // ── Row Mutations ────────────────────────────────────────────────────────────
@@ -1355,8 +1461,14 @@ function updateRow(catIdx, rowIdx, field, value) {
   withUndo(`Edited ${fieldLabel} of "${expenseName}"`, () => {
     const d = loadData(currentYear, currentMonth);
     d[catIdx].rows[rowIdx][field] = value;
-    saveData(currentYear, currentMonth, d);
-    renderBudget();
+    const saved = saveData(currentYear, currentMonth, d);
+    // On success, patch just the numbers that changed — the input the user
+    // just edited already shows what they typed, so there's no need to
+    // rebuild the page (see updateComputedValues()). On failure, fall back
+    // to a full render so the UI reflects the reverted, actually-persisted
+    // data — saveData() already surfaced a toast explaining why, so there's
+    // no mid-edit focus left to preserve here anyway.
+    if (saved) updateComputedValues(); else renderBudget();
   });
 }
 
@@ -1386,7 +1498,7 @@ function removeRow(catIdx, rowIdx) {
     closeSheet();
   } else {
     closeSheet();
-    alert('Cannot remove the last row in a category. Delete the category instead if it\'s no longer needed.');
+    showToast('Cannot remove the last row in a category. Delete the category instead if it\'s no longer needed.');
   }
 }
 

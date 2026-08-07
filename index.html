@@ -4,8 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="BudgetApp" />
+  <meta name="theme-color" content="#1c1c1e" />
   <link rel="apple-touch-icon" href="Icons/icon-192.png" />
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="style.css" />
@@ -33,7 +35,10 @@
 
   <!-- Bottom sheet overlay used for main menu, category menu, colour picker etc -->
   <div class="sheet-overlay" id="sheetOverlay" onclick="closeSheet()"></div>
-  <div class="bottom-sheet" id="bottomSheet"></div>
+  <div class="bottom-sheet" id="bottomSheet" role="dialog" aria-modal="true" aria-label="BudgetApp menu"></div>
+
+  <!-- Toast used for routine feedback (undo/redo, import results, warnings) -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="app.js"></script>
 </body>

@@ -60,6 +60,7 @@ The app will appear on your home screen and run in full-screen mode like a nativ
 - **Fully Paid mode** — row shows a right-aligned checkbox in the Status column
 - **Running Total mode** — row shows a right-aligned numeric running-total input in the Status column
 - **Over-budget visual warning** — running total text turns red when the entered running total exceeds the row's budgeted cost
+- **Instant edits** — editing a row patches just the affected numbers (Remaining, section total, summary bar, chart) instead of rebuilding the whole page, so the keyboard/focus no longer drops when moving straight to the next field
 
 ### 🧮 Running Total Logic
 Each row can operate in one of two modes:
@@ -86,6 +87,15 @@ Each row can operate in one of two modes:
 - Legend alongside chart showing category name and percentage
 - Hidden until at least one expense value is entered
 - Income excluded from chart
+
+### 🌗 Appearance
+- **Dark mode** — follows the system/browser setting automatically (`prefers-color-scheme`), no in-app toggle
+- **Contrast-aware category headers** — header text switches between dark and light automatically based on the category's own colour, so it stays readable against every palette entry
+
+### ♿ Accessibility
+- Bottom sheet is a proper dialog (`role="dialog"`, `aria-modal`) and can be dismissed with **Escape**, same as tapping the overlay
+- Expense name, cost, paid, and running-total inputs all have accessible labels
+- `orientation: portrait` locked in the manifest and `theme-color`/`mobile-web-app-capable` meta tags added — this is a phone-only, standalone-only layout
 
 ### 📅 Month Propagation
 - **Set Current Month as Template** — now moved into the main menu
@@ -127,7 +137,7 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
 - Stores the last **10 actions**
 - Undo stack is cleared of redo history whenever a new action is performed after an undo (standard undo/redo behaviour)
 - Persists across page refresh — stored in localStorage
-- Each undo/redo shows a plain-language description of the action reverted or reapplied
+- Each undo/redo shows a plain-language description of the action reverted or reapplied, as a brief toast rather than a blocking dialog
 
 ### 🔐 App Permissions
 - Renamed from **Permissions** to **App Permissions**
@@ -248,17 +258,17 @@ silently, or by re-showing the refresh prompt forever):
    easier.
 
 `APP_VERSION` and `version.json`'s `version` field intentionally have **no
-`v` prefix** (`5.2.3`, not `v5.2.3`) — the app's own menus already display
-the word "Version" next to it, and doubling that up as "Version v5.2.3" reads
+`v` prefix** (`5.3`, not `v5.3`) — the app's own menus already display the
+word "Version" next to it, and doubling that up as "Version v5.3" reads
 redundantly.
 
-Example — bumping to 5.2.4:
+Example — bumping to 5.4:
 
-    const APP_VERSION = '5.2.4';          // app.js
+    const APP_VERSION = '5.4';          // app.js
 
-    { "version": "5.2.4" }                // version.json
+    { "version": "5.4" }                // version.json
 
-    const CACHE_NAME = 'budget-app-v5.2.4'; // sw.js
+    const CACHE_NAME = 'budget-app-v5.4'; // sw.js
 
 Recommended versioning convention:
 
@@ -309,6 +319,7 @@ Every change to this app — however small — follows the same process:
 | v5.2.1 | Minor patch fixes and version bump to 5.2.1 |
 | v5.2.2 | Bug fixes — "In Account" no longer displays overspend as a positive amount; a full storage quota now warns and preserves existing data instead of silently discarding the edit; Undo/Redo no longer errors after restoring a snapshot; History import only writes recognised app data keys; import file picker now resets correctly after a cancelled or invalid import; category colours from imported/legacy data are validated before rendering; cost and running total values are HTML-escaped when rendered; removing the last row in a category now shows feedback instead of doing nothing; update detection no longer errors if the service worker has already advanced past the "installing" state |
 | v5.2.3 | Bug fixes — the app now compares against its own baked-in `APP_VERSION` instead of learning a baseline from the first check, so a stale cached bundle is reliably detected even on a cold start; the service worker and version.json checks now share a single reload prompt instead of potentially showing two; the service worker no longer activates and claims open pages before the user has confirmed the refresh, which could previously serve a mix of old in-memory JS and newly-cached assets; the menu now shows the running version instantly with no "Loading..." placeholder, and without the redundant "Version v" wording |
+| v5.3 | Editing a row no longer rebuilds the whole page (fixes lost keyboard focus mid-edit); routine feedback (undo/redo, import results, warnings) now shows as a toast instead of a blocking alert; category header text automatically switches between dark and light for readability against any palette colour; bottom sheet is now a proper dialog, dismissible with Escape, with accessible input labels; dark mode via `prefers-color-scheme`; `orientation: portrait` locked and `theme-color`/`mobile-web-app-capable` meta tags added |
 
 ---
 

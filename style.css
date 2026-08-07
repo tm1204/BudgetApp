@@ -133,7 +133,8 @@ main { padding: 16px; }
 .section-total {
   font-size: 13px;
   font-weight: 700;
-  color: #1c1c1e;
+  /* No colour here — inherits from .section-header's inline style, which is
+     computed per-category so it stays readable against any palette colour */
   white-space: nowrap;
 }
 
@@ -143,7 +144,7 @@ main { padding: 16px; }
   border: none;
   font-size: 20px;
   cursor: pointer;
-  color: #3a3a3c;
+  /* No colour here — inherits from .section-header, see .section-total above */
   padding: 0 4px;
   line-height: 1;
   flex-shrink: 0;
@@ -387,6 +388,33 @@ main { padding: 16px; }
   white-space: nowrap;
 }
 
+/* Toast — routine feedback (undo/redo, import results, warnings), replacing
+   the native alert() dialog. Non-interactive: pointer-events off while
+   hidden so it never blocks a tap on whatever is underneath it. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 32px;
+  transform: translate(-50%, 12px);
+  max-width: min(90vw, 380px);
+  background: #1c1c1e;
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 14px;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 /* Bottom Sheet — shared component for all popup menus */
 .sheet-overlay {
   display: none;
@@ -561,4 +589,45 @@ main { padding: 16px; }
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* Dark mode — follows the system setting automatically, no in-app toggle.
+   Header, month tabs and summary bar are already dark-themed in light mode
+   too, so they're untouched here; category headers get their text colour
+   computed per-category in JS regardless of mode, so also untouched.
+   Status/accent colours (green/red/blue) are Apple system colours already
+   designed to read on both light and dark backgrounds. */
+@media (prefers-color-scheme: dark) {
+  body { background: #000; color: #f2f2f7; }
+
+  .section,
+  .chart-container,
+  .add-category-btn,
+  .bottom-sheet {
+    background: #1c1c1e;
+  }
+
+  .col-headers,
+  .budget-row,
+  .sheet-option {
+    border-bottom-color: rgba(255,255,255,0.08);
+  }
+
+  .add-category-btn { border-color: #48484a; }
+  .add-category-btn:hover,
+  .add-btn:hover { background: #2c2c2e; }
+
+  .running-total-input,
+  .legend-value,
+  .sheet-title,
+  .sheet-title-inline,
+  .sheet-option,
+  .sheet-back-btn,
+  .sheet-cancel {
+    color: #f2f2f7;
+  }
+
+  .legend-name { color: #c7c7cc; }
+  .sheet-cancel { background: #2c2c2e; }
+  .colour-swatch.selected { border-color: #f2f2f7; }
 }

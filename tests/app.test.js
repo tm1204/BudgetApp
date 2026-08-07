@@ -39,23 +39,56 @@ function createStorage(initial = {}, { failKeys = new Set() } = {}) {
   };
 }
 
-function createDom() {
+// Real Set-backed classList — app.js's toggleClass()/Escape-to-close code
+// needs classList.toggle()/contains(), which a plain {add(){}, remove(){}}
+// stub can't support.
+function createClassList(initial = []) {
+  const classes = new Set(initial);
+  return {
+    add(c) { classes.add(c); },
+    remove(c) { classes.delete(c); },
+    contains(c) { return classes.has(c); },
+    toggle(c, force) {
+      const shouldHave = force === undefined ? !classes.has(c) : force;
+      if (shouldHave) classes.add(c); else classes.delete(c);
+      return shouldHave;
+    }
+  };
+}
+
+// toasts, if given, collects every message written to the #toast element's
+// textContent (showToast() replaced alert() for routine feedback — see
+// loadApp below) — an array rather than a single value, since a test can
+// trigger more than one toast (e.g. undo then redo) and needs the history,
+// not just whatever is showing last.
+function createDom(toasts = []) {
   const elements = new Map();
+  const listeners = {};
   const document = {
     body: {},
-    addEventListener() {},
+    addEventListener(event, cb) { (listeners[event] = listeners[event] || []).push(cb); },
     createElement(tag) {
       if (tag === 'a') return { click() {}, setAttribute() {} };
       return {};
     },
     getElementById(id) {
       if (!elements.has(id)) {
-        elements.set(id, { innerHTML: '', classList: { add() {}, remove() {} }, style: {}, value: '', click() {} });
+        if (id === 'toast') {
+          let text = '';
+          elements.set(id, {
+            classList: createClassList(),
+            style: {},
+            get textContent() { return text; },
+            set textContent(v) { text = v; toasts.push(v); }
+          });
+        } else {
+          elements.set(id, { innerHTML: '', classList: createClassList(), style: {}, value: '', click() {} });
+        }
       }
       return elements.get(id);
     }
   };
-  return { document, elements };
+  return { document, elements, listeners };
 }
 
 // Builds a fresh vm context, loads app.js into it, and returns handles used
@@ -80,8 +113,9 @@ function createDom() {
 // resolves to, e.g. { waiting: fakeWorker } to simulate an update already
 // sitting in the waiting state.
 function loadApp({ storage, confirmReturns = true, promptReturns = null, fetchVersionPayload, registrationOverride = null } = {}) {
-  const { document } = createDom();
-  const alerts = [];
+  const toasts = [];
+  const { document, listeners } = createDom(toasts);
+  const alerts = []; // kept for defensiveness, but app.js no longer calls alert() anywhere — see toasts
   const confirms = [];
   const reloads = [];
   const swListeners = {};
@@ -151,7 +185,7 @@ function loadApp({ storage, confirmReturns = true, promptReturns = null, fetchVe
   });
 
   vm.runInContext(APP_SOURCE, context, { filename: 'app.js' });
-  return { context, document, alerts, confirms, fileContentHolder, reloads, swListeners };
+  return { context, document, alerts, confirms, fileContentHolder, reloads, swListeners, toasts, listeners };
 }
 
 // Flushes pending microtasks (promise .then chains) without relying on a
@@ -230,7 +264,7 @@ test('a full storage quota does not silently drop a row edit', () => {
       { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [{ expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] }
     ])
   }, { failKeys: new Set(['budget_2026_6']) });
-  const { context, alerts } = loadApp({ storage });
+  const { context, toasts } = loadApp({ storage });
 
   assert.doesNotThrow(() => context.updateRow(1, 0, 'expense', 'Bread'));
 
@@ -238,7 +272,7 @@ test('a full storage quota does not silently drop a row edit', () => {
   // the edit must be visibly rejected, not silently discarded
   const saved = JSON.parse(storage.getItem('budget_2026_6'));
   assert.equal(saved[1].rows[0].expense, 'Milk');
-  assert.ok(alerts.some(a => /storage is full/i.test(a)), 'expected a storage-full warning to be shown');
+  assert.ok(toasts.some(t => /storage is full/i.test(t)), 'expected a storage-full warning to be shown');
 });
 
 test('a full undo-stack quota still applies the edit, but warns undo is unavailable', () => {
@@ -249,13 +283,13 @@ test('a full undo-stack quota still applies the edit, but warns undo is unavaila
       { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [{ expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] }
     ])
   }, { failKeys: new Set(['__undoStack']) });
-  const { context, alerts } = loadApp({ storage });
+  const { context, toasts } = loadApp({ storage });
 
   assert.doesNotThrow(() => context.updateRow(1, 0, 'expense', 'Bread'));
 
   const saved = JSON.parse(storage.getItem('budget_2026_6'));
   assert.equal(saved[1].rows[0].expense, 'Bread');
-  assert.ok(alerts.some(a => /undo/i.test(a) && /storage/i.test(a)), 'expected an undo-history warning to be shown');
+  assert.ok(toasts.some(t => /undo/i.test(t) && /storage/i.test(t)), 'expected an undo-history warning to be shown');
 });
 
 test('undo and redo run without throwing and revert/reapply correctly', () => {
@@ -266,7 +300,7 @@ test('undo and redo run without throwing and revert/reapply correctly', () => {
       { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [{ expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] }
     ])
   });
-  const { context, alerts } = loadApp({ storage });
+  const { context, toasts } = loadApp({ storage });
 
   context.updateRow(1, 0, 'expense', 'Bread');
   assert.doesNotThrow(() => context.undoLastAction());
@@ -275,8 +309,8 @@ test('undo and redo run without throwing and revert/reapply correctly', () => {
   assert.doesNotThrow(() => context.redoLastAction());
   assert.equal(JSON.parse(storage.getItem('budget_2026_6'))[1].rows[0].expense, 'Bread');
 
-  assert.ok(alerts.some(a => a.startsWith('Undone:')));
-  assert.ok(alerts.some(a => a.startsWith('Redone:')));
+  assert.ok(toasts.some(t => t.startsWith('Undone:')));
+  assert.ok(toasts.some(t => t.startsWith('Redone:')));
 });
 
 test('removing the last row in a category is rejected with feedback instead of doing nothing', () => {
@@ -287,13 +321,13 @@ test('removing the last row in a category is rejected with feedback instead of d
       { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [{ expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] }
     ])
   });
-  const { context, alerts } = loadApp({ storage });
+  const { context, toasts } = loadApp({ storage });
 
   assert.doesNotThrow(() => context.removeRow(1, 0));
 
   const saved = JSON.parse(storage.getItem('budget_2026_6'));
   assert.equal(saved[1].rows.length, 1, 'the only row must not be removed');
-  assert.ok(alerts.some(a => /last row/i.test(a)));
+  assert.ok(toasts.some(t => /last row/i.test(t)));
 });
 
 test('importing budget history only writes recognised keys, skipping foreign/dangerous ones', () => {
@@ -302,7 +336,7 @@ test('importing budget history only writes recognised keys, skipping foreign/dan
     budget_2026_6: JSON.stringify([{ name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }])
   });
   const app = loadApp({ storage, confirmReturns: true });
-  const { alerts } = app;
+  const { toasts } = app;
 
   const payload = {
     version: 1,
@@ -319,7 +353,7 @@ test('importing budget history only writes recognised keys, skipping foreign/dan
   assert.equal(storage.getItem('budget_2027_0'), JSON.stringify(payload.entries.budget_2027_0));
   assert.equal(storage.getItem('evil_key'), null, 'non budget_/protected_ keys must never be imported');
   assert.equal(storage.getItem('__undoStack'), null, 'undo/redo stacks must never be imported');
-  assert.ok(alerts.some(a => /skipped/i.test(a)));
+  assert.ok(toasts.some(t => /skipped/i.test(t)));
 });
 
 test('a category colour that is not a valid hex value is sanitized on load, not rendered raw', () => {
@@ -406,7 +440,7 @@ test('the menu displays the baked-in app version immediately, with no "Loading..
   context.openMainMenu();
 
   const html = document.getElementById('bottomSheet').innerHTML;
-  assert.ok(/Version \d+\.\d+\.\d+/.test(html), 'expected a bare "Version X.Y.Z" with no leading v and no placeholder text');
+  assert.ok(/Version \d+\.\d+(\.\d+)?(?!\.)/.test(html), 'expected a bare version number with no leading v and no placeholder text');
   assert.ok(!html.includes('Loading...'));
 });
 
@@ -508,4 +542,68 @@ test('confirming a reload waits for the service worker to actually activate befo
   swListeners.controllerchange.forEach(cb => cb());
 
   assert.equal(reloads.length, 1, 'expected exactly one reload once control actually changed');
+});
+
+test('editing a row value patches computed numbers without rebuilding the whole page', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [{ expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+  const budgetContentBefore = document.getElementById('budgetContent').innerHTML;
+
+  context.updateRow(1, 0, 'cost', '20');
+
+  // A successful edit must go through updateComputedValues(), not
+  // renderBudget() — proven here by #budgetContent's innerHTML never being
+  // touched at all, which is exactly what used to destroy and recreate
+  // every input (and drop focus/keyboard) on every single field edit
+  assert.equal(document.getElementById('budgetContent').innerHTML, budgetContentBefore);
+
+  // ...while the actual computed numbers this edit affects were patched:
+  // Remaining = income(100) - new cost(20) = 80, section total = 20
+  assert.equal(document.getElementById('remaining-1-0').textContent, 'R 80.00');
+  assert.equal(document.getElementById('section-total-1').textContent, 'R 20.00');
+});
+
+test('pickTextColour picks readable text for both light and dark category colours', () => {
+  const { context } = loadApp({ storage: createStorage({}) });
+
+  assert.equal(context.pickTextColour('#000000'), '#f2f2f7', 'black background should get light text');
+  assert.equal(context.pickTextColour('#FFFFFF'), '#1c1c1e', 'white background should get dark text');
+  // Brown — one of the palette colours previously unreadable with a fixed
+  // dark header text colour
+  assert.equal(context.pickTextColour('#A0522D'), '#f2f2f7');
+});
+
+test('pressing Escape closes an open bottom sheet, other keys do not', () => {
+  const { context, document, listeners } = loadApp({ storage: createStorage({}) });
+
+  context.openMainMenu();
+  assert.ok(document.getElementById('bottomSheet').classList.contains('open'));
+  assert.ok(listeners.keydown && listeners.keydown.length > 0, 'expected a keydown listener to be registered');
+
+  listeners.keydown.forEach(cb => cb({ key: 'Enter' }));
+  assert.ok(document.getElementById('bottomSheet').classList.contains('open'), 'a non-Escape key must not close the sheet');
+
+  listeners.keydown.forEach(cb => cb({ key: 'Escape' }));
+  assert.ok(!document.getElementById('bottomSheet').classList.contains('open'));
+});
+
+test('the bottom sheet markup declares itself as an accessible dialog', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.match(html, /id="bottomSheet"[^>]*role="dialog"/);
+  assert.match(html, /id="bottomSheet"[^>]*aria-modal="true"/);
+});
+
+test('index.html and manifest.json declare the iOS/PWA one-liners this release added', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
+
+  assert.match(html, /<meta name="mobile-web-app-capable" content="yes"\s*\/>/);
+  assert.match(html, /<meta name="theme-color" content="#1c1c1e"\s*\/>/);
+  assert.equal(manifest.orientation, 'portrait');
 });
