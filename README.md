@@ -1,6 +1,6 @@
 # 💰 BudgetApp
 
-A lightweight personal budgeting Progressive Web App (PWA) built with vanilla HTML, CSS, and JavaScript. Hosted on GitHub Pages and installable as a home screen app on iPhone.
+A lightweight personal budgeting Progressive Web App (PWA) built with vanilla HTML, CSS, and JavaScript. Hosted on GitHub Pages and installable as a home screen app on iPhone and Android.
 
 ---
 
@@ -18,6 +18,18 @@ https://tm1204.github.io/BudgetApp/
 4. Tap **Add**
 
 The app will appear on your home screen and run in full-screen mode like a native app. When a new version is deployed, the app will automatically prompt you to refresh, checking every time the app becomes visible.
+
+---
+
+## 🤖 Install on Android
+
+1. Open the link above in **Chrome**
+2. Chrome should show an **"Add to Home screen" / "Install app"** banner automatically — tap it, then **Install**
+3. If no banner appears, tap the **⋮ menu** in the top right, then **"Add to Home screen"**
+
+The app appears on the home screen and launches full-screen like a native app, same as on iPhone. Icon adapts to your launcher's shape (circle, squircle, etc.) via a dedicated maskable icon.
+
+⚠️ Android support is new and less thoroughly tested than iPhone — if anything looks or behaves differently than expected, that's useful to report.
 
 ---
 
@@ -168,8 +180,10 @@ Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trig
     ├── manifest.json       # PWA manifest — icons, display mode, theme
     ├── README.md           # This file
     └── Icons/
-        ├── icon-192.png    # App icon — home screen
-        └── icon-512.png    # App icon — splash screen
+        ├── icon-192.png          # App icon — home screen, apple-touch-icon
+        ├── icon-512.png          # App icon — splash screen
+        ├── icon-192-maskable.png # Android adaptive icon — logo padded to fit any mask shape
+        └── icon-512-maskable.png # Android adaptive icon, larger size
 
 ---
 
@@ -326,6 +340,7 @@ Every change to this app — however small — follows the same process:
 | v5.3.2 | Bug fix — the expense name and cost inputs on every row had no text colour set at all and relied on the browser's default (black) rather than inheriting from the page, so they stayed black in dark mode regardless of the previous fix; both now explicitly inherit the page's text colour |
 | v5.4 | Category header text is now always black instead of switching between dark/light per category — the previous adaptive logic worked, but a single standard colour was preferred for consistency; `pickTextColour()` removed |
 | v5.5 | 10 of 16 category colours didn't actually meet WCAG AA contrast against the now-fixed black header text (checked properly this time, not just the rough heuristic from v5.4) — those 10 were lightened to clear it, and all 16 were reordered so consecutive entries are far apart in hue, since that's the order adjacent pie chart slices get. Categories saved with an old colour are migrated automatically on load. The category ⋮ menu button now explicitly matches the header text's colour and weight — it turns out buttons don't inherit `color`/`font-weight` from the page by default any more reliably than inputs do |
+| v5.6 | Android support: added dedicated maskable icons (192/512, logo padded to fit any adaptive-icon mask shape rather than reusing the existing icon, which had too little margin), both wired into the manifest and precached by the service worker; `orientation`/`theme-color`/`mobile-web-app-capable` from earlier releases were already cross-platform. Added a standard favicon `<link>`, which was missing entirely. README now documents an Android install flow alongside iPhone's |
 
 ---
 

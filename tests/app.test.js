@@ -669,7 +669,32 @@ test('index.html and manifest.json declare the iOS/PWA one-liners this release a
 
   assert.match(html, /<meta name="mobile-web-app-capable" content="yes"\s*\/>/);
   assert.match(html, /<meta name="theme-color" content="#1c1c1e"\s*\/>/);
+  assert.match(html, /<link rel="icon" href="Icons\/icon-192\.png"\s*\/>/, 'expected a standard favicon link, not just apple-touch-icon');
   assert.equal(manifest.orientation, 'portrait');
+});
+
+test('manifest declares maskable icons for Android adaptive icon support', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
+
+  const anyIcons = manifest.icons.filter(i => i.purpose === 'any');
+  const maskableIcons = manifest.icons.filter(i => i.purpose === 'maskable');
+  assert.ok(anyIcons.length >= 1, 'expected at least one purpose:any icon');
+  assert.ok(maskableIcons.some(i => i.sizes === '512x512'), 'expected a 512x512 maskable icon');
+  assert.ok(maskableIcons.some(i => i.sizes === '192x192'), 'expected a 192x192 maskable icon');
+
+  maskableIcons.forEach(icon => {
+    const iconPath = path.join(__dirname, '..', icon.src);
+    assert.ok(fs.existsSync(iconPath), `${icon.src} is declared in the manifest but the file doesn't exist`);
+  });
+});
+
+test('every manifest icon is precached by the service worker', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
+  const swSource = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
+
+  manifest.icons.forEach(icon => {
+    assert.ok(swSource.includes(`./${icon.src}`), `${icon.src} is declared in manifest.json but not precached in sw.js — it won't work offline`);
+  });
 });
 
 test('row expense/cost inputs have an explicit text colour instead of relying on browser default inheritance', () => {

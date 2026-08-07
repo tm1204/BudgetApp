@@ -1,6 +1,6 @@
 // Cache name — bump this string with every release to force old caches
 // to be cleared and users to be prompted to refresh
-const CACHE_NAME = 'budget-app-v5.5';
+const CACHE_NAME = 'budget-app-v5.6';
 
 // All app assets cached for offline use
 const ASSETS = [
@@ -11,7 +11,9 @@ const ASSETS = [
   './manifest.json',
   './version.json',
   './Icons/icon-192.png',
-  './Icons/icon-512.png'
+  './Icons/icon-512.png',
+  './Icons/icon-192-maskable.png',
+  './Icons/icon-512-maskable.png'
 ];
 
 // Install — pre-cache all assets. Deliberately does NOT call skipWaiting()
