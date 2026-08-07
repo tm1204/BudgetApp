@@ -402,9 +402,14 @@ main { padding: 16px; }
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 32px;
+  /* Messages got longer once "Set as Template" started reporting a skipped
+     count alongside the updated count — at the old 32px/380px, that message
+     wraps to two lines sitting right against the bottom edge. More
+     clearance from the edge, and a bit more width so fewer messages wrap
+     at all. */
+  bottom: 72px;
   transform: translate(-50%, 12px);
-  max-width: min(90vw, 380px);
+  max-width: min(92vw, 440px);
   background: #1c1c1e;
   color: #fff;
   padding: 12px 18px;
