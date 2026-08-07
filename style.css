@@ -623,7 +623,8 @@ main { padding: 16px; }
   .sheet-title-inline,
   .sheet-option,
   .sheet-back-btn,
-  .sheet-cancel {
+  .sheet-cancel,
+  .row-ellipsis-btn {
     color: #f2f2f7;
   }
 

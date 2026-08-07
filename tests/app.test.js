@@ -607,3 +607,32 @@ test('index.html and manifest.json declare the iOS/PWA one-liners this release a
   assert.match(html, /<meta name="theme-color" content="#1c1c1e"\s*\/>/);
   assert.equal(manifest.orientation, 'portrait');
 });
+
+test('every fixed dark/black text colour outside the category header is overridden in dark mode', () => {
+  // Regression: .row-ellipsis-btn (the per-row ⋮ menu button) kept its
+  // light-mode #3a3a3c text colour in dark mode, where .section's
+  // background flips to #1c1c1e — nearly invisible, dark grey on near-black.
+  // Rather than re-list every selector here (brittle — breaks on any
+  // unrelated dark-mode edit), this greps the light-mode rules for the two
+  // colours that are actually invisible against a dark card background and
+  // asserts each one is also mentioned inside the dark-mode media query.
+  // .section-header (#3a3a3c) is deliberately excluded: it's always
+  // overridden per-instance by pickTextColour() in app.js, never by this
+  // fallback CSS value.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+  const darkModeIdx = css.indexOf('@media (prefers-color-scheme: dark)');
+  assert.ok(darkModeIdx !== -1, 'expected a dark-mode media query block in style.css');
+  const lightModeCss = css.slice(0, darkModeIdx);
+  const darkModeCss = css.slice(darkModeIdx);
+
+  const selectorsWithDarkText = [...lightModeCss.matchAll(/(\.[\w-]+|^body)\s*\{[^}]*color:\s*#(?:1c1c1e|3a3a3c)\b/gm)]
+    .map(m => m[1])
+    .filter(selector => selector !== '.section-header');
+
+  assert.ok(selectorsWithDarkText.includes('.row-ellipsis-btn'), 'sanity check: the known-fixed selector should still be found by this scan');
+  assert.ok(selectorsWithDarkText.includes('body'), 'sanity check: this scan should also catch bare-element selectors, not just .classes');
+  selectorsWithDarkText.forEach(selector => {
+    const escaped = selector.startsWith('.') ? '\\' + selector : selector;
+    assert.match(darkModeCss, new RegExp(escaped + '\\b'), `${selector} has fixed dark text in light mode but no dark-mode override`);
+  });
+});
