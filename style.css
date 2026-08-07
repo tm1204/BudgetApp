@@ -133,8 +133,7 @@ main { padding: 16px; }
 .section-total {
   font-size: 13px;
   font-weight: 700;
-  /* No colour here — inherits from .section-header's inline style, which is
-     computed per-category so it stays readable against any palette colour */
+  /* No colour here — inherits from .section-header's fixed text colour */
   white-space: nowrap;
 }
 
@@ -598,10 +597,11 @@ main { padding: 16px; }
 
 /* Dark mode — follows the system setting automatically, no in-app toggle.
    Header, month tabs and summary bar are already dark-themed in light mode
-   too, so they're untouched here; category headers get their text colour
-   computed per-category in JS regardless of mode, so also untouched.
-   Status/accent colours (green/red/blue) are Apple system colours already
-   designed to read on both light and dark backgrounds. */
+   too, so they're untouched here; .section-header's text colour is fixed
+   (contrast depends on the category's own background colour, not the app's
+   light/dark theme, so the same value is correct in both). Status/accent
+   colours (green/red/blue) are Apple system colours already designed to
+   read on both light and dark backgrounds. */
 @media (prefers-color-scheme: dark) {
   body { background: #000; color: #f2f2f7; }
 

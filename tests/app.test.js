@@ -569,14 +569,21 @@ test('editing a row value patches computed numbers without rebuilding the whole 
   assert.equal(document.getElementById('section-total-1').textContent, 'R 20.00');
 });
 
-test('pickTextColour picks readable text for both light and dark category colours', () => {
-  const { context } = loadApp({ storage: createStorage({}) });
+test('category header colour is fixed inline to just the background, not the text', () => {
+  // pickTextColour() (per-category dark/light text) was removed — headers
+  // now use one standard text colour (set in CSS on .section-header) for
+  // every category, by request, rather than varying category to category.
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#A0522D', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+    ])
+  });
+  const { document } = loadApp({ storage });
 
-  assert.equal(context.pickTextColour('#000000'), '#f2f2f7', 'black background should get light text');
-  assert.equal(context.pickTextColour('#FFFFFF'), '#1c1c1e', 'white background should get dark text');
-  // Brown — one of the palette colours previously unreadable with a fixed
-  // dark header text colour
-  assert.equal(context.pickTextColour('#A0522D'), '#f2f2f7');
+  const html = document.getElementById('budgetContent').innerHTML;
+  assert.match(html, /style="background:#A0522D;"/, 'expected only a background colour inline, no per-category text colour');
 });
 
 test('pressing Escape closes an open bottom sheet, other keys do not', () => {
@@ -628,9 +635,10 @@ test('every fixed dark/black text colour outside the category header is overridd
   // unrelated dark-mode edit), this greps the light-mode rules for the two
   // colours that are actually invisible against a dark card background and
   // asserts each one is also mentioned inside the dark-mode media query.
-  // .section-header (#3a3a3c) is deliberately excluded: it's always
-  // overridden per-instance by pickTextColour() in app.js, never by this
-  // fallback CSS value.
+  // .section-header (#3a3a3c) is deliberately excluded: its contrast
+  // depends on the category's own background colour, not the app's
+  // light/dark theme, so the same fixed value is intentionally correct in
+  // both modes rather than needing a dark-mode override.
   const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
   const darkModeIdx = css.indexOf('@media (prefers-color-scheme: dark)');
   assert.ok(darkModeIdx !== -1, 'expected a dark-mode media query block in style.css');

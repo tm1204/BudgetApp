@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.3.2';
+const APP_VERSION = '5.4';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -1198,17 +1198,6 @@ function computeRowDisplays(data, income) {
   return { sectionTotals, rowsByCat };
 }
 
-// Picks readable header text (dark or light) for a given background colour,
-// since category colours are user-selectable and a fixed text colour reads
-// poorly against darker palette entries (e.g. brown, slate)
-function pickTextColour(hex) {
-  const r = parseInt(hex.slice(1, 3), 16) || 0;
-  const g = parseInt(hex.slice(3, 5), 16) || 0;
-  const b = parseInt(hex.slice(5, 7), 16) || 0;
-  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-  return brightness >= 128 ? '#1c1c1e' : '#f2f2f7';
-}
-
 // ── Render ───────────────────────────────────────────────────────────────────
 function renderApp() {
   renderYearSelect();
@@ -1299,11 +1288,11 @@ function renderBudget() {
     </div>`;
 
   data.forEach((cat, catIdx) => {
-    // Category colour is user-selectable, so a fixed text colour can end up
-    // unreadable against darker palette entries — pick per-category instead.
-    // .section-total and .ellipsis-btn have no colour of their own in CSS so
-    // they inherit this via normal cascade.
-    const headerStyle = `background:${cat.colour}; color:${pickTextColour(cat.colour)};`;
+    // Text colour is fixed (set in CSS on .section-header, not here) rather
+    // than computed per-category — every palette colour is light/bright
+    // enough for black text to stay readable, and a single standard colour
+    // was preferred over the header text varying category to category.
+    const headerStyle = `background:${cat.colour};`;
 
     html += `
     <div class="section">

@@ -90,7 +90,7 @@ Each row can operate in one of two modes:
 
 ### 🌗 Appearance
 - **Dark mode** — follows the system/browser setting automatically (`prefers-color-scheme`), no in-app toggle
-- **Contrast-aware category headers** — header text switches between dark and light automatically based on the category's own colour, so it stays readable against every palette entry
+- **Category header text** — always black, regardless of the category's own colour, for a consistent look across every category
 
 ### ♿ Accessibility
 - Bottom sheet is a proper dialog (`role="dialog"`, `aria-modal`) and can be dismissed with **Escape**, same as tapping the overlay
@@ -322,6 +322,7 @@ Every change to this app — however small — follows the same process:
 | v5.3 | Editing a row no longer rebuilds the whole page (fixes lost keyboard focus mid-edit); routine feedback (undo/redo, import results, warnings) now shows as a toast instead of a blocking alert; category header text automatically switches between dark and light for readability against any palette colour; bottom sheet is now a proper dialog, dismissible with Escape, with accessible input labels; dark mode via `prefers-color-scheme`; `orientation: portrait` locked and `theme-color`/`mobile-web-app-capable` meta tags added |
 | v5.3.1 | Bug fix — the per-row ⋮ menu button kept its light-mode text colour in dark mode, nearly invisible against the dark card background; added a test that scans for this class of miss (any selector with fixed dark text in light mode that isn't also overridden in the dark-mode block) rather than just the one instance |
 | v5.3.2 | Bug fix — the expense name and cost inputs on every row had no text colour set at all and relied on the browser's default (black) rather than inheriting from the page, so they stayed black in dark mode regardless of the previous fix; both now explicitly inherit the page's text colour |
+| v5.4 | Category header text is now always black instead of switching between dark/light per category — the previous adaptive logic worked, but a single standard colour was preferred for consistency; `pickTextColour()` removed |
 
 ---
 
