@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.8';
+const APP_VERSION = '5.8.1';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -80,6 +80,10 @@ const ICON_IMPORT = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none"
 const ICON_PERMISSIONS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V7a4 4 0 0 1 7.5-2"/><rect x="5" y="11" width="9" height="8" rx="1.5"/><path d="M7 15l1.5 1.5L11 14"/></svg>`;
 
 const ICON_HELP = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.7v.5"/><path d="M12 17h.01"/></svg>`;
+
+const ICON_MANUAL = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5.5A2.5 2.5 0 0 1 6.5 3H12v18H6.5a2.5 2.5 0 0 0-2.5 2.5"/><path d="M12 3h5.5A2.5 2.5 0 0 1 20 5.5v14a2.5 2.5 0 0 0-2.5-2.5H12"/></svg>`;
+
+const ICON_FAQ = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.35 0-2.62-.32-3.75-.9L3 20l1.1-4.4A8.5 8.5 0 1 1 21 11.5z"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.7v.3"/><path d="M12 16h.01"/></svg>`;
 
 const ICON_UNDO = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a5 5 0 0 1 0 10H11"/></svg>`;
 
@@ -879,11 +883,11 @@ function openHelpMenu() {
     </div>
 
     <button class="sheet-option" onclick="openUserManual()">
-      <span class="sheet-option-icon">📘</span> User Manual
+      <span class="sheet-option-icon">${ICON_MANUAL}</span> User Manual
     </button>
 
     <button class="sheet-option" onclick="openFAQ()">
-      <span class="sheet-option-icon">❓</span> FAQ
+      <span class="sheet-option-icon">${ICON_FAQ}</span> FAQ
     </button>
 
     <div class="sheet-version-line">Version ${APP_VERSION}</div>
@@ -911,7 +915,7 @@ function openUserManual() {
     <div class="help-text">Each category holds rows for individual expenses (or, in Income, sources of income). Use "+ Add row" to add one, and a row's ⋮ button to remove or reorder it, or switch how it's tracked.</div>
 
     <div class="help-heading">Fully Paid vs Running Total rows</div>
-    <div class="help-text">By default a row is "Fully Paid" — tick its checkbox once it's been paid. Switch a row to "Running Total" for anything you pay into gradually, like a savings goal or paying off a debt: instead of a checkbox you get a running balance, which you can edit directly or add to using the row's "Add to Total" option.</div>
+    <div class="help-text">By default a row is "Fully Paid" — tick its checkbox once it's been paid. Switch a row to "Running Total" when a budgeted expense gets paid off in parts rather than all at once — instead of a checkbox you get a running balance, which you can edit directly or top up using the row's "Add to Total" option as each part payment goes through.</div>
 
     <div class="help-heading">The summary bar</div>
     <div class="help-text">Income is the total of everything in the Income category. Total Expenses is the sum of every other category's costs. Budgeted Balance is Income minus Total Expenses — what you planned. In Account reflects what's actually happened so far: costs from ticked Fully Paid rows, plus current Running Total balances.</div>
@@ -937,7 +941,7 @@ function openFAQ() {
   const faqs = [
     ["Why can't I rename, reorder or delete the Income category?", "Income always stays first so the app can reliably tell it apart from expense categories. You can still change its colour."],
     ["What happens if my device storage is full?", "The app tells you via a message instead of silently losing your change, and an Undo record may not be kept for it. Export a backup and free up some space."],
-    ["What's the difference between Fully Paid and Running Total rows?", "Fully Paid is a simple paid/not-paid checkbox for a one-off cost. Running Total is for anything you contribute to over time, like a savings goal or debt payoff — it tracks a running balance instead of a single paid/unpaid state."],
+    ["What's the difference between Fully Paid and Running Total rows?", "Fully Paid is a simple paid/not-paid checkbox for a one-off cost. Running Total is for an expense you're paying off in parts rather than all at once — it tracks a running balance instead of a single paid/unpaid state."],
     ["Does Set as Template change past months?", "No — it only copies forward from the month you're viewing to later months, and never touches months you've locked with Protect Month."],
     ["How many undos do I get?", "The last 10 actions. Once you go past that, the oldest ones drop off."],
     ["Will my data sync between devices?", "Not yet — everything is stored locally on your device. Use Export and Import to move your data to another device."]
@@ -985,15 +989,6 @@ function openCategoryMenu(catIdx) {
       <div class="sheet-back-placeholder"></div>
     </div>
 
-    ${isInc ? '' : `
-    <button class="sheet-option" onclick="sheetRename(${catIdx})">
-      <span class="sheet-option-icon">${ICON_RENAME}</span> Rename
-    </button>`}
-
-    <button class="sheet-option" onclick="sheetColour(${catIdx})">
-      <span class="sheet-option-icon">🎨</span> Change Colour
-    </button>
-
     ${hideUp ? '' : `
     <button class="sheet-option" onclick="sheetMove(${catIdx},-1)">
       <span class="sheet-option-icon">▲</span> Move Up
@@ -1003,6 +998,15 @@ function openCategoryMenu(catIdx) {
     <button class="sheet-option" onclick="sheetMove(${catIdx},1)">
       <span class="sheet-option-icon">▼</span> Move Down
     </button>`}
+
+    ${isInc ? '' : `
+    <button class="sheet-option" onclick="sheetRename(${catIdx})">
+      <span class="sheet-option-icon">${ICON_RENAME}</span> Rename
+    </button>`}
+
+    <button class="sheet-option" onclick="sheetColour(${catIdx})">
+      <span class="sheet-option-icon">🎨</span> Change Colour
+    </button>
 
     ${isInc ? '' : `
     <button class="sheet-option destructive" onclick="sheetDelete(${catIdx})">
@@ -1149,11 +1153,12 @@ function openRowMenu(catIdx, rowIdx) {
       <span class="sheet-option-icon">🗑️</span> Remove Row
     </button>
 
+    ${category.isIncome ? '' : `
     <button class="sheet-option" onclick="switchRowMode(${catIdx},${rowIdx})">
       <span class="sheet-option-icon">⇄</span> ${switchLabel}
-    </button>
+    </button>`}
 
-    ${mode === 'running-total' ? `
+    ${mode === 'running-total' && !category.isIncome ? `
     <button class="sheet-option" onclick="addToRunningTotal(${catIdx},${rowIdx})">
       <span class="sheet-option-icon">➕</span> Add to Total
     </button>` : ''}
@@ -1496,7 +1501,7 @@ function renderBudget() {
       </div>
       <div class="col-headers">
         <div class="ch-expense">${cat.isIncome ? 'Source' : 'Expense'}</div>
-        <div class="ch-cost">Cost</div>
+        <div class="ch-cost">${cat.isIncome ? 'Amount' : 'Cost'}</div>
         <div class="ch-remaining">Remaining</div>
         <div class="ch-paid">${cat.isIncome ? '' : 'Status'}</div>
         <div class="ch-remove"></div>
@@ -1548,7 +1553,7 @@ function renderBudget() {
             onchange="updateRow(${catIdx},${rowIdx},'expense',this.value)" />
         </div>
         <div class="cell-cost">
-          <input type="number" placeholder="0.00" value="${safeCost}" aria-label="Cost"
+          <input type="number" placeholder="0.00" value="${safeCost}" aria-label="${cat.isIncome ? 'Amount' : 'Cost'}"
             onchange="updateRow(${catIdx},${rowIdx},'cost',this.value)" />
         </div>
         <div class="cell-remaining">

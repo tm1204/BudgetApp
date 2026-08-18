@@ -57,17 +57,18 @@ The app appears on the home screen and launches full-screen like a native app, s
 - **Section totals** — each category header displays the sum of all its rows on the right
 - **Consistent category ellipsis** — category heading menu now uses the same vertical ellipsis style as row menus
 - **Irrelevant options are hidden, not greyed out** — Income's menu only ever shows Change Colour; Move Up/Down disappear entirely at either end of the category list, rather than staying visible in a disabled state that's hard to read in dark mode
+- **Category menu order** — Move Up, Move Down, Rename, Change Colour, Delete
 
 ### 📋 Rows
 - **Add rows** — per category via the "+ Add row" button
 - **Row actions menu** — each row uses a **vertical ellipsis** menu instead of a direct remove button
 - **Remove Row** — available from the row menu
-- **Switch Row to Running Total** — available from the row menu
+- **Switch Row to Running Total** — available from the row menu (not offered on Income rows — see Running Total Logic below)
 - **Switch Row to Fully Paid** — available from the row menu
 - **Add to Total** — available from the row menu on Running Total rows only; prompts for an amount and adds it to the row's existing running total, instead of having to work out and retype the new figure by hand
 - **Move Row Up / Down** — available from the row menu for reordering rows within a category; hidden (not shown disabled) for the first/last row
 - **Expense name** — free text input; labelled **Income source** instead, for rows in the Income category
-- **Column header wording** — the "Expense" column header reads **"Source"** for the Income category, since its rows are income rather than spending
+- **Column header wording** — the "Expense" column header reads **"Source"** and the "Cost" column header reads **"Amount"** for the Income category, since its rows are income rather than spending
 - **Cost** — numeric input
 - **Remaining** — auto-calculated running balance after each row's effective budget impact is deducted from income
 - **Status column** — right-aligned
@@ -86,8 +87,10 @@ Each row can operate in one of two modes:
 - **In Account impact** = full cost only when checked
 
 #### Running Total
-- Switched on via row menu
+- For a budgeted expense that gets paid off in parts rather than all at once
+- Switched on via row menu (not offered on Income rows, which are always Fully Paid)
 - Replaces the checkbox with a numeric input
+- **Add to Total** — row menu option that prompts for an amount and adds it to the existing running total, for each part payment as it happens
 - **Budget / Remaining impact** = greater of:
   - budgeted cost
   - entered running total
@@ -260,7 +263,7 @@ Categories saved with one of the 10 pre-fix colours are migrated to their correc
 
 ## 🖼️ Menu Icon Style
 
-Export, Import, App Permissions, Help, Undo, Redo, Rename, Protected/Unprotected, and Set Month as Template use minimal, bold, black line-style inline SVG icons — a deliberately different visual language from the app's colourful rounded main icon, keeping the day-to-day interface clean and modern. Change Colour, Move Up, Move Down, Delete, Add to Total, User Manual, and FAQ remain as simple glyph/emoji controls where retained.
+Export, Import, App Permissions, Help, User Manual, FAQ, Undo, Redo, Rename, Protected/Unprotected, and Set Month as Template use minimal, bold, black line-style inline SVG icons — a deliberately different visual language from the app's colourful rounded main icon, keeping the day-to-day interface clean and modern. Change Colour, Move Up, Move Down, Delete, and Add to Total remain as simple glyph/emoji controls where retained.
 
 ---
 
@@ -354,6 +357,7 @@ Every change to this app — however small — follows the same process:
 | v5.7.1 | Bug fix — the toast sat only 32px from the bottom edge with a 380px max-width, which felt cramped once "Set as Template"'s longer message (v5.7) started wrapping to two lines right against the edge. More clearance from the edge, a bit more width so fewer messages wrap at all |
 | v5.7.2 | Bug fix — v5.7.1 only changed the toast's distance from the screen edge, not the actual problem: being `position: fixed`, it renders at a fixed screen position regardless of scroll, and the pie chart/legend (the last thing on the page) frequently ended up right there — ticking a row's paid checkbox routinely covered the legend. Moved the toast to anchor below the sticky header instead of near the bottom, where there's no scrolled content to collide with |
 | v5.8 | App Permissions moved to the bottom of the main menu; added a Help entry with an in-app User Manual and FAQ; Income's "Expense" wording changed to "Source"/"Income source" since its rows are income, not spending; added a Miscellaneous default category; added "Add to Total" on Running Total rows to add an amount to the existing total instead of retyping it; category and row menu options that don't apply (Income's Rename/Move/Delete, Move Up/Down at either end of a list) are now hidden entirely instead of shown greyed out, which was hard to read in dark mode and cluttered the menu |
+| v5.8.1 | Bug fixes — User Manual/FAQ now use inline SVG icons matching the app's existing icon style instead of placeholder emoji; Income rows can no longer be switched to Running Total mode (the Status column is always blank for Income regardless of mode, so the option was live but functionally inert); Income's "Cost" column/field now reads "Amount"; category menu reordered to Move Up, Move Down, Rename, Change Colour, Delete; Running Total's in-app description repositioned from a savings/debt framing to a spending one — an allocated expense paid off in parts |
 
 ---
 

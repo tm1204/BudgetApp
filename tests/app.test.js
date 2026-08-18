@@ -925,7 +925,7 @@ test('Help opens a sub-menu leading to User Manual and FAQ content', () => {
   assert.ok(html.includes('openHelpMenu()'), 'FAQ\'s back button should return to the Help menu');
 });
 
-test('Income wording says Source/Income source instead of Expense/Expense name; other categories are unchanged', () => {
+test('Income wording says Source/Income source/Amount instead of Expense/Expense name/Cost; other categories are unchanged', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -938,8 +938,12 @@ test('Income wording says Source/Income source instead of Expense/Expense name; 
 
   assert.ok(html.includes('>Source<'));
   assert.ok(html.includes('placeholder="Income source"'));
+  assert.ok(html.includes('>Amount<'));
+  assert.ok(html.includes('aria-label="Amount"'));
   assert.ok(html.includes('>Expense<'));
   assert.ok(html.includes('placeholder="Expense name"'));
+  assert.ok(html.includes('>Cost<'));
+  assert.ok(html.includes('aria-label="Cost"'));
 });
 
 test('a fresh month with no saved data includes the new Miscellaneous default category', () => {
@@ -947,4 +951,62 @@ test('a fresh month with no saved data includes the new Miscellaneous default ca
   const { document } = loadApp({ storage });
   const html = document.getElementById('budgetContent').innerHTML;
   assert.ok(html.includes('Miscellaneous'));
+});
+
+test('Income rows never expose Running Total mode, even on legacy data already saved with that mode', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [
+        { expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Legacy running-total income row', cost: '50', paid: false, mode: 'running-total', runningTotal: '20' }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  context.openRowMenu(0, 0);
+  let html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(!html.includes('Switch Row to Running Total'), 'Income rows should never offer switching to Running Total');
+
+  context.openRowMenu(0, 1); // already running-total from legacy data
+  html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(!html.includes('Switch Row to Fully Paid'), 'the switch option should be hidden entirely for Income, not just relabelled');
+  assert.ok(!html.includes('Add to Total'), 'Add to Total should never appear on an Income row');
+});
+
+test('category menu lists options in Move Up, Move Down, Rename, Change Colour, Delete order', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'A', colour: '#FF6B6B', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'B', colour: '#FF6B6B', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'C', colour: '#FF6B6B', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  context.openCategoryMenu(2); // "B" — a middle category, so every option is present
+  const html = document.getElementById('bottomSheet').innerHTML;
+
+  const upIdx = html.indexOf('Move Up');
+  const downIdx = html.indexOf('Move Down');
+  const renameIdx = html.indexOf('Rename');
+  const colourIdx = html.indexOf('Change Colour');
+  const deleteIdx = html.indexOf('Delete');
+  assert.ok([upIdx, downIdx, renameIdx, colourIdx, deleteIdx].every(i => i !== -1), 'expected all five options to be present for a middle category');
+  assert.ok(upIdx < downIdx && downIdx < renameIdx && renameIdx < colourIdx && colourIdx < deleteIdx);
+});
+
+test('User Manual and FAQ use inline SVG icons matching the app\'s existing icon style, not emoji', () => {
+  const { context, document } = loadApp({ storage: createStorage({}) });
+
+  context.openHelpMenu();
+  const html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(!html.includes('📘') && !html.includes('❓'), 'the old placeholder emoji should be gone');
+  // ICON_MANUAL and ICON_FAQ's own path data — confirms the actual line-style
+  // SVG icons render here, not just that some other svg is present
+  assert.ok(html.includes('M4 19.5V5.5A2.5 2.5 0 0 1 6.5 3H12v18H6.5a2.5 2.5 0 0 0-2.5 2.5'));
+  assert.ok(html.includes('M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.35 0-2.62-.32-3.75-.9L3 20l1.1-4.4A8.5 8.5 0 1 1 21 11.5z'));
 });
