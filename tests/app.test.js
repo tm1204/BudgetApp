@@ -791,3 +791,160 @@ test('every fixed dark/black text colour outside the category header is overridd
     assert.match(darkModeCss, new RegExp(escaped + '\\b'), `${selector} has fixed dark text in light mode but no dark-mode override`);
   });
 });
+
+test('category menu hides Rename/Move/Delete for Income, and Move Up/Down at the array boundaries, instead of showing them disabled', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'A', colour: '#FF6B6B', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'B', colour: '#FF6B6B', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'C', colour: '#FF6B6B', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  context.openCategoryMenu(0); // Income
+  let html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(!html.includes('disabled'), 'no option should ever be shown greyed-out/disabled');
+  assert.ok(!html.includes('Rename'));
+  assert.ok(!html.includes('Move Up'));
+  assert.ok(!html.includes('Move Down'));
+  assert.ok(!html.includes('Delete'));
+  assert.ok(html.includes('Change Colour'), 'Income should still be able to change colour');
+
+  context.openCategoryMenu(1); // "A" — right after Income
+  html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(!html.includes('Move Up'), 'moving up would land on/above Income');
+  assert.ok(html.includes('Move Down'));
+
+  context.openCategoryMenu(2); // "B" — a middle category
+  html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(html.includes('Move Up'));
+  assert.ok(html.includes('Move Down'));
+
+  context.openCategoryMenu(3); // "C" — last category
+  html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(html.includes('Move Up'));
+  assert.ok(!html.includes('Move Down'), 'already last, nothing to move down to');
+});
+
+test('row menu hides Move Up/Down at the first/last row instead of showing them disabled', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Bread', cost: '5', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Eggs', cost: '5', paid: false, mode: 'fully-paid', runningTotal: '' }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  context.openRowMenu(1, 0); // first row
+  let html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(!html.includes('disabled'));
+  assert.ok(!html.includes('Move Up'));
+  assert.ok(html.includes('Move Down'));
+
+  context.openRowMenu(1, 1); // middle row
+  html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(html.includes('Move Up'));
+  assert.ok(html.includes('Move Down'));
+
+  context.openRowMenu(1, 2); // last row
+  html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(html.includes('Move Up'));
+  assert.ok(!html.includes('Move Down'));
+});
+
+test('"Add to Total" only appears on running-total rows, and adds the entered amount to the existing total', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Savings', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Fully paid row', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Emergency fund', cost: '1000', paid: false, mode: 'running-total', runningTotal: '250' }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage, promptReturns: '50' });
+
+  context.openRowMenu(1, 0); // fully-paid row
+  assert.ok(!document.getElementById('bottomSheet').innerHTML.includes('Add to Total'));
+
+  context.openRowMenu(1, 1); // running-total row
+  assert.ok(document.getElementById('bottomSheet').innerHTML.includes('Add to Total'));
+
+  context.addToRunningTotal(1, 1);
+
+  const saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[1].runningTotal, '300'); // 250 + 50
+
+  // withUndo() auto-appends the viewed month/year (currentMonth 6 = July, from lastViewedMonth above)
+  const stack = context.getUndoStack();
+  assert.equal(stack[stack.length - 1].desc, 'Added R 50.00 to running total for "Emergency fund" (July 2026)');
+});
+
+test('main menu places App Permissions after Undo/Redo, and Help after App Permissions', () => {
+  const storage = createStorage({});
+  const { context, document } = loadApp({ storage });
+
+  context.openMainMenu();
+  const html = document.getElementById('bottomSheet').innerHTML;
+
+  const redoIdx = html.indexOf('Redo');
+  const permissionsIdx = html.indexOf('App Permissions');
+  const helpIdx = html.lastIndexOf('Help'); // "Help" alone, after the App Permissions button
+  assert.ok(redoIdx !== -1 && permissionsIdx !== -1 && helpIdx !== -1, 'expected to find Redo, App Permissions and Help in the main menu');
+  assert.ok(redoIdx < permissionsIdx, 'App Permissions should now sit below Undo/Redo');
+  assert.ok(permissionsIdx < helpIdx, 'Help should sit directly below App Permissions');
+});
+
+test('Help opens a sub-menu leading to User Manual and FAQ content', () => {
+  const storage = createStorage({});
+  const { context, document } = loadApp({ storage });
+
+  context.openHelpMenu();
+  let html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(html.includes('User Manual'));
+  assert.ok(html.includes('FAQ'));
+  assert.ok(html.includes('openMainMenu()'), 'Help\'s back button should return to the main menu');
+
+  context.openUserManual();
+  html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(html.includes('Running Total'), 'manual should document the running-total row mode');
+  assert.ok(html.includes('openHelpMenu()'), 'User Manual\'s back button should return to the Help menu');
+
+  context.openFAQ();
+  html = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(html.includes('Income category'), 'FAQ should cover why Income behaves differently');
+  assert.ok(html.includes('openHelpMenu()'), 'FAQ\'s back button should return to the Help menu');
+});
+
+test('Income wording says Source/Income source instead of Expense/Expense name; other categories are unchanged', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+    ])
+  });
+  const { document } = loadApp({ storage });
+  const html = document.getElementById('budgetContent').innerHTML;
+
+  assert.ok(html.includes('>Source<'));
+  assert.ok(html.includes('placeholder="Income source"'));
+  assert.ok(html.includes('>Expense<'));
+  assert.ok(html.includes('placeholder="Expense name"'));
+});
+
+test('a fresh month with no saved data includes the new Miscellaneous default category', () => {
+  const storage = createStorage({});
+  const { document } = loadApp({ storage });
+  const html = document.getElementById('budgetContent').innerHTML;
+  assert.ok(html.includes('Miscellaneous'));
+});

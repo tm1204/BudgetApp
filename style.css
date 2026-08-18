@@ -546,6 +546,34 @@ main { padding: 16px; }
   padding-top: 14px;
 }
 
+/* Help menu — User Manual sections and FAQ entries */
+.help-heading {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1c1c1e;
+  margin: 16px 0 4px;
+}
+.help-heading:first-of-type { margin-top: 0; }
+.help-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #3a3a3c;
+}
+
+.faq-item { margin-bottom: 16px; }
+.faq-item:last-of-type { margin-bottom: 0; }
+.faq-question {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1c1c1e;
+  margin-bottom: 4px;
+}
+.faq-answer {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #3a3a3c;
+}
+
 /* Colour picker grid — 16 colour palette */
 .colour-grid {
   display: grid;
@@ -643,11 +671,14 @@ main { padding: 16px; }
   .sheet-option,
   .sheet-back-btn,
   .sheet-cancel,
-  .row-ellipsis-btn {
+  .row-ellipsis-btn,
+  .help-heading,
+  .faq-question {
     color: #f2f2f7;
   }
 
   .legend-name { color: #c7c7cc; }
   .sheet-cancel { background: #2c2c2e; }
   .colour-swatch.selected { border-color: #f2f2f7; }
+  .help-text, .faq-answer { color: #c7c7cc; }
 }

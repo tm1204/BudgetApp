@@ -48,24 +48,26 @@ The app appears on the home screen and launches full-screen like a native app, s
   - **Running Total** rows subtract the entered running total amount
 
 ### 🗂️ Categories
-- **8 default categories** — Income, Tithes, Home, Vehicles, Debits, Food, Fuel, Entertainment
+- **9 default categories** — Income, Tithes, Home, Vehicles, Debits, Food, Fuel, Entertainment, Miscellaneous
 - **Add custom categories** — via the "+ Add Category" button at the bottom of the list
-- **Rename categories** — via the ⋮ menu on each category header (Income excluded)
-- **Delete categories** — via the ⋮ menu with confirmation prompt (Income excluded)
+- **Rename categories** — via the ⋮ menu on each category header (not shown for Income)
+- **Delete categories** — via the ⋮ menu with confirmation prompt (not shown for Income)
 - **Reorder categories** — Move Up / Move Down via the category menu; Income is permanently locked to the top position and no category can be moved above position 2
 - **Category colours** — each category has a selectable colour from a 16-colour palette, applied to the section header and pie chart; Income has its own fixed selectable colour separate from the expense palette
 - **Section totals** — each category header displays the sum of all its rows on the right
 - **Consistent category ellipsis** — category heading menu now uses the same vertical ellipsis style as row menus
+- **Irrelevant options are hidden, not greyed out** — Income's menu only ever shows Change Colour; Move Up/Down disappear entirely at either end of the category list, rather than staying visible in a disabled state that's hard to read in dark mode
 
 ### 📋 Rows
 - **Add rows** — per category via the "+ Add row" button
 - **Row actions menu** — each row uses a **vertical ellipsis** menu instead of a direct remove button
 - **Remove Row** — available from the row menu
-- **Switch Row to Running Total** — available from the row menu for non-Income rows
-- **Switch Row to Fully Paid** — available from the row menu for non-Income rows
-- **Move Row Up / Down** — available from the row menu for reordering rows within a category
-- **Income row menu** — only contains **Remove Row**
-- **Expense name** — free text input
+- **Switch Row to Running Total** — available from the row menu
+- **Switch Row to Fully Paid** — available from the row menu
+- **Add to Total** — available from the row menu on Running Total rows only; prompts for an amount and adds it to the row's existing running total, instead of having to work out and retype the new figure by hand
+- **Move Row Up / Down** — available from the row menu for reordering rows within a category; hidden (not shown disabled) for the first/last row
+- **Expense name** — free text input; labelled **Income source** instead, for rows in the Income category
+- **Column header wording** — the "Expense" column header reads **"Source"** for the Income category, since its rows are income rather than spending
 - **Cost** — numeric input
 - **Remaining** — auto-calculated running balance after each row's effective budget impact is deducted from income
 - **Status column** — right-aligned
@@ -122,18 +124,24 @@ Each row can operate in one of two modes:
 Accessed by tapping the **BudgetApp** name/icon in the top left, a dropdown trigger button:
 - **Export**
 - **Import**
-- **App Permissions**
 - **Set Current Month as Template**
 - **Current Month Protected / Unprotected**
 - **Undo**
 - **Redo**
+- **App Permissions**
+- **Help** — opens User Manual and FAQ
 - App version shown as a **greyed-out line** at the bottom of the menu
-- Export, Import, App Permissions, Undo, Redo, Protected/Unprotected, Set Current Month as Template, and Rename use consistent minimal bold line-style SVG icons aligned to the app’s modern minimal interface
+- Export, Import, App Permissions, Help, Undo, Redo, Protected/Unprotected, Set Current Month as Template, and Rename use consistent minimal bold line-style SVG icons aligned to the app’s modern minimal interface
+
+### ❓ Help
+Accessed via **Help** in the main menu:
+- **User Manual** — a walkthrough of every feature (categories, rows, Fully Paid vs Running Total, the summary bar, Undo/Redo, Set as Template, Protect Month, Export/Import), written from the app's actual current behaviour
+- **FAQ** — short answers to the questions most likely to come up in real use (why Income behaves differently, what happens when storage is full, how many undos are kept, whether data syncs between devices)
 
 ### ⬅️ Submenu Navigation
 - Submenus now include a **Back** button in the **top-left corner**
 - Back returns to the previous menu instead of forcing the user to close and reopen the menu flow
-- Export, Import, App Permissions, and Choose Colour all use this submenu back pattern
+- Export, Import, App Permissions, Help/User Manual/FAQ, and Choose Colour all use this submenu back pattern
 - Main menu actions now use the same back-style header layout, with no separate cancel button in the sheet body
 
 ### 📤 Export / Import
@@ -252,7 +260,7 @@ Categories saved with one of the 10 pre-fix colours are migrated to their correc
 
 ## 🖼️ Menu Icon Style
 
-Export, Import, App Permissions, Undo, Redo, Rename, Protected/Unprotected, and Set Month as Template use minimal, bold, black line-style inline SVG icons — a deliberately different visual language from the app's colourful rounded main icon, keeping the day-to-day interface clean and modern. Change Colour, Move Up, Move Down, and Delete remain as simple glyph/emoji controls where retained.
+Export, Import, App Permissions, Help, Undo, Redo, Rename, Protected/Unprotected, and Set Month as Template use minimal, bold, black line-style inline SVG icons — a deliberately different visual language from the app's colourful rounded main icon, keeping the day-to-day interface clean and modern. Change Colour, Move Up, Move Down, Delete, Add to Total, User Manual, and FAQ remain as simple glyph/emoji controls where retained.
 
 ---
 
@@ -345,6 +353,7 @@ Every change to this app — however small — follows the same process:
 | v5.7 | Undo/redo toasts now name the month/year the action affected, since the undo stack is shared across every month and the action being reverted isn't necessarily for whatever month is currently on screen (full history imports are the one exception — not scoped to a single month at all). "Set as Template" now reports how many months were skipped for being protected, alongside the updated count — previously gave no signal that any propagation had been skipped |
 | v5.7.1 | Bug fix — the toast sat only 32px from the bottom edge with a 380px max-width, which felt cramped once "Set as Template"'s longer message (v5.7) started wrapping to two lines right against the edge. More clearance from the edge, a bit more width so fewer messages wrap at all |
 | v5.7.2 | Bug fix — v5.7.1 only changed the toast's distance from the screen edge, not the actual problem: being `position: fixed`, it renders at a fixed screen position regardless of scroll, and the pie chart/legend (the last thing on the page) frequently ended up right there — ticking a row's paid checkbox routinely covered the legend. Moved the toast to anchor below the sticky header instead of near the bottom, where there's no scrolled content to collide with |
+| v5.8 | App Permissions moved to the bottom of the main menu; added a Help entry with an in-app User Manual and FAQ; Income's "Expense" wording changed to "Source"/"Income source" since its rows are income, not spending; added a Miscellaneous default category; added "Add to Total" on Running Total rows to add an amount to the existing total instead of retyping it; category and row menu options that don't apply (Income's Rename/Move/Delete, Move Up/Down at either end of a list) are now hidden entirely instead of shown greyed out, which was hard to read in dark mode and cluttered the menu |
 
 ---
 

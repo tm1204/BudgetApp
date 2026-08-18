@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.7.2';
+const APP_VERSION = '5.8';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -53,7 +53,8 @@ const DEFAULT_CATEGORIES = [
   { name: 'Debits',        colour: PALETTE[3],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
   { name: 'Food',          colour: PALETTE[4],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
   { name: 'Fuel',          colour: PALETTE[5],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-  { name: 'Entertainment', colour: PALETTE[6],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+  { name: 'Entertainment', colour: PALETTE[6],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+  { name: 'Miscellaneous', colour: PALETTE[7],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
 ];
 
 let currentYear  = CURRENT_YEAR;
@@ -77,6 +78,8 @@ const ICON_EXPORT = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none"
 const ICON_IMPORT = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10"/><path d="M8 9l4 4 4-4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>`;
 
 const ICON_PERMISSIONS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V7a4 4 0 0 1 7.5-2"/><rect x="5" y="11" width="9" height="8" rx="1.5"/><path d="M7 15l1.5 1.5L11 14"/></svg>`;
+
+const ICON_HELP = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.7v.5"/><path d="M12 17h.01"/></svg>`;
 
 const ICON_UNDO = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a5 5 0 0 1 0 10H11"/></svg>`;
 
@@ -607,10 +610,6 @@ function openMainMenu() {
       <span class="sheet-option-icon">${ICON_IMPORT}</span> Import
     </button>
 
-    <button class="sheet-option" onclick="openPermissionsMenu()">
-      <span class="sheet-option-icon">${ICON_PERMISSIONS}</span> App Permissions
-    </button>
-
     <button class="sheet-option" onclick="setAsTemplate();">
       <span class="sheet-option-icon">${ICON_TEMPLATE}</span> Set Current Month as Template
     </button>
@@ -630,6 +629,14 @@ function openMainMenu() {
       onclick="${redoCount === 0 ? '' : 'redoLastAction()'}">
       <span class="sheet-option-icon">${ICON_REDO}</span> Redo
       <span class="sheet-option-sub">${redoCount > 0 ? redoCount : ''}</span>
+    </button>
+
+    <button class="sheet-option" onclick="openPermissionsMenu()">
+      <span class="sheet-option-icon">${ICON_PERMISSIONS}</span> App Permissions
+    </button>
+
+    <button class="sheet-option" onclick="openHelpMenu()">
+      <span class="sheet-option-icon">${ICON_HELP}</span> Help
     </button>
 
     <div class="sheet-version-line">Version ${APP_VERSION}</div>
@@ -860,16 +867,115 @@ function requestPermissionFromMenu() {
   });
 }
 
+// ── Help Menu ────────────────────────────────────────────────────────────────
+function openHelpMenu() {
+  const html = `
+    <div class="sheet-header">
+      <button class="sheet-back-btn" onclick="openMainMenu()">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
+      <div class="sheet-title-inline">Help</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
+
+    <button class="sheet-option" onclick="openUserManual()">
+      <span class="sheet-option-icon">📘</span> User Manual
+    </button>
+
+    <button class="sheet-option" onclick="openFAQ()">
+      <span class="sheet-option-icon">❓</span> FAQ
+    </button>
+
+    <div class="sheet-version-line">Version ${APP_VERSION}</div>
+  `;
+  openSheet(html);
+}
+
+function openUserManual() {
+  const html = `
+    <div class="sheet-header">
+      <button class="sheet-back-btn" onclick="openHelpMenu()">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
+      <div class="sheet-title-inline">User Manual</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
+
+    <div class="help-heading">Getting started</div>
+    <div class="help-text">Every month has its own budget. Switch between months using the tabs, and between years using the year selector. Changes save automatically as soon as you leave a field — there is no separate save step.</div>
+
+    <div class="help-heading">Categories</div>
+    <div class="help-text">Your budget is grouped into categories, like Home, Food or Fuel. Income sits fixed at the top and tracks money coming in rather than money going out. Tap a category's ⋮ button to rename it, change its colour, reorder it, or delete it. Income can only have its colour changed, since it always stays first and can't be moved, renamed or deleted.</div>
+
+    <div class="help-heading">Rows</div>
+    <div class="help-text">Each category holds rows for individual expenses (or, in Income, sources of income). Use "+ Add row" to add one, and a row's ⋮ button to remove or reorder it, or switch how it's tracked.</div>
+
+    <div class="help-heading">Fully Paid vs Running Total rows</div>
+    <div class="help-text">By default a row is "Fully Paid" — tick its checkbox once it's been paid. Switch a row to "Running Total" for anything you pay into gradually, like a savings goal or paying off a debt: instead of a checkbox you get a running balance, which you can edit directly or add to using the row's "Add to Total" option.</div>
+
+    <div class="help-heading">The summary bar</div>
+    <div class="help-text">Income is the total of everything in the Income category. Total Expenses is the sum of every other category's costs. Budgeted Balance is Income minus Total Expenses — what you planned. In Account reflects what's actually happened so far: costs from ticked Fully Paid rows, plus current Running Total balances.</div>
+
+    <div class="help-heading">Undo &amp; Redo</div>
+    <div class="help-text">Most changes can be undone from the main menu, for up to the last 10 actions. Redo brings an undone change back, as long as you haven't made a new change since.</div>
+
+    <div class="help-heading">Set Current Month as Template</div>
+    <div class="help-text">Copies the month you're viewing forward to every later month across the next few years — amounts and row names carry over, but Paid ticks and Running Totals reset. Any month you've protected is always skipped.</div>
+
+    <div class="help-heading">Protect Month</div>
+    <div class="help-text">Locking a month (shown with a padlock on its tab) stops "Set as Template" from overwriting it — use this once a month is finalised the way you want it.</div>
+
+    <div class="help-heading">Export &amp; Import</div>
+    <div class="help-text">Export a single month as a reusable template, or your entire budget history as a backup, and import either kind of file back in. Useful for moving to a new device or restoring after clearing app data.</div>
+
+    <div class="sheet-version-line">Version ${APP_VERSION}</div>
+  `;
+  openSheet(html);
+}
+
+function openFAQ() {
+  const faqs = [
+    ["Why can't I rename, reorder or delete the Income category?", "Income always stays first so the app can reliably tell it apart from expense categories. You can still change its colour."],
+    ["What happens if my device storage is full?", "The app tells you via a message instead of silently losing your change, and an Undo record may not be kept for it. Export a backup and free up some space."],
+    ["What's the difference between Fully Paid and Running Total rows?", "Fully Paid is a simple paid/not-paid checkbox for a one-off cost. Running Total is for anything you contribute to over time, like a savings goal or debt payoff — it tracks a running balance instead of a single paid/unpaid state."],
+    ["Does Set as Template change past months?", "No — it only copies forward from the month you're viewing to later months, and never touches months you've locked with Protect Month."],
+    ["How many undos do I get?", "The last 10 actions. Once you go past that, the oldest ones drop off."],
+    ["Will my data sync between devices?", "Not yet — everything is stored locally on your device. Use Export and Import to move your data to another device."]
+  ];
+
+  const html = `
+    <div class="sheet-header">
+      <button class="sheet-back-btn" onclick="openHelpMenu()">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
+      <div class="sheet-title-inline">FAQ</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
+
+    ${faqs.map(([q, a]) => `
+    <div class="faq-item">
+      <div class="faq-question">${q}</div>
+      <div class="faq-answer">${a}</div>
+    </div>`).join('')}
+
+    <div class="sheet-version-line">Version ${APP_VERSION}</div>
+  `;
+  openSheet(html);
+}
+
 // ── Category Management Menu ─────────────────────────────────────────────────
 function openCategoryMenu(catIdx) {
   const data    = loadData(currentYear, currentMonth);
   const cat     = data[catIdx];
   const isInc   = cat.isIncome;
-  // Move Up is disabled for Income and for any category already at index 1
+  // Move Up is irrelevant for Income and for any category already at index 1
   // (directly below Income) — prevents anything from landing on index 0
-  const disableUp   = isInc || catIdx <= 1;
-  const disableDown = isInc || catIdx === data.length - 1;
+  const hideUp   = isInc || catIdx <= 1;
+  const hideDown = isInc || catIdx === data.length - 1;
 
+  // Income can never be renamed, moved, or deleted — those options are
+  // omitted entirely rather than shown disabled (a disabled/grey button is
+  // hard to read in dark mode, and hiding also keeps the menu shorter)
   const html = `
     <div class="sheet-header">
       <button class="sheet-back-btn" onclick="closeSheet()">
@@ -879,29 +985,29 @@ function openCategoryMenu(catIdx) {
       <div class="sheet-back-placeholder"></div>
     </div>
 
-    <button class="sheet-option ${isInc ? 'disabled' : ''}"
-      onclick="${isInc ? '' : `sheetRename(${catIdx})`}">
+    ${isInc ? '' : `
+    <button class="sheet-option" onclick="sheetRename(${catIdx})">
       <span class="sheet-option-icon">${ICON_RENAME}</span> Rename
-    </button>
+    </button>`}
 
     <button class="sheet-option" onclick="sheetColour(${catIdx})">
       <span class="sheet-option-icon">🎨</span> Change Colour
     </button>
 
-    <button class="sheet-option ${disableUp ? 'disabled' : ''}"
-      onclick="${disableUp ? '' : `sheetMove(${catIdx},-1)`}">
+    ${hideUp ? '' : `
+    <button class="sheet-option" onclick="sheetMove(${catIdx},-1)">
       <span class="sheet-option-icon">▲</span> Move Up
-    </button>
+    </button>`}
 
-    <button class="sheet-option ${disableDown ? 'disabled' : ''}"
-      onclick="${disableDown ? '' : `sheetMove(${catIdx},1)`}">
+    ${hideDown ? '' : `
+    <button class="sheet-option" onclick="sheetMove(${catIdx},1)">
       <span class="sheet-option-icon">▼</span> Move Down
-    </button>
+    </button>`}
 
-    <button class="sheet-option destructive ${isInc ? 'disabled' : ''}"
-      onclick="${isInc ? '' : `sheetDelete(${catIdx})`}">
+    ${isInc ? '' : `
+    <button class="sheet-option destructive" onclick="sheetDelete(${catIdx})">
       <span class="sheet-option-icon">🗑️</span> Delete
-    </button>
+    </button>`}
 
     <div class="sheet-version-line">Version ${APP_VERSION}</div>
   `;
@@ -1023,8 +1129,8 @@ function openRowMenu(catIdx, rowIdx) {
   const category = data[catIdx];
   const mode = row.mode ?? 'fully-paid';
 
-  const disableUp = rowIdx === 0;
-  const disableDown = rowIdx === data[catIdx].rows.length - 1;
+  const hideUp = rowIdx === 0;
+  const hideDown = rowIdx === data[catIdx].rows.length - 1;
 
   const switchLabel = mode === 'running-total'
     ? 'Switch Row to Fully Paid'
@@ -1047,13 +1153,20 @@ function openRowMenu(catIdx, rowIdx) {
       <span class="sheet-option-icon">⇄</span> ${switchLabel}
     </button>
 
-    <button class="sheet-option ${disableUp ? 'disabled' : ''}" onclick="${disableUp ? '' : `moveRow(${catIdx},${rowIdx},-1)`}">
-      <span class="sheet-option-icon">▲</span> Move Up
-    </button>
+    ${mode === 'running-total' ? `
+    <button class="sheet-option" onclick="addToRunningTotal(${catIdx},${rowIdx})">
+      <span class="sheet-option-icon">➕</span> Add to Total
+    </button>` : ''}
 
-    <button class="sheet-option ${disableDown ? 'disabled' : ''}" onclick="${disableDown ? '' : `moveRow(${catIdx},${rowIdx},1)`}">
+    ${hideUp ? '' : `
+    <button class="sheet-option" onclick="moveRow(${catIdx},${rowIdx},-1)">
+      <span class="sheet-option-icon">▲</span> Move Up
+    </button>`}
+
+    ${hideDown ? '' : `
+    <button class="sheet-option" onclick="moveRow(${catIdx},${rowIdx},1)">
       <span class="sheet-option-icon">▼</span> Move Down
-    </button>
+    </button>`}
 
     <div class="sheet-version-line">Version ${APP_VERSION}</div>
   `;
@@ -1101,6 +1214,28 @@ function moveRow(catIdx, rowIdx, direction) {
   withUndo(`Moved row "${rowName}" ${direction < 0 ? 'up' : 'down'}`, () => {
     const d = loadData(currentYear, currentMonth);
     [d[catIdx].rows[rowIdx], d[catIdx].rows[newIdx]] = [d[catIdx].rows[newIdx], d[catIdx].rows[rowIdx]];
+    saveData(currentYear, currentMonth, d);
+    renderBudget();
+  });
+  closeSheet();
+}
+
+function addToRunningTotal(catIdx, rowIdx) {
+  const data = loadData(currentYear, currentMonth);
+  const row = data[catIdx].rows[rowIdx];
+  const amountStr = prompt('Amount to add to running total:');
+  if (amountStr === null) { closeSheet(); return; }
+  const amount = parseFloat(amountStr);
+  if (isNaN(amount)) { closeSheet(); return; }
+
+  const rowName = row.expense || '(unnamed)';
+  // fmt() always returns an absolute value — the minus sign for a negative
+  // (correcting) amount has to be added explicitly, same convention used
+  // for the summary bar's Budgeted Balance / In Account figures
+  withUndo(`Added ${amount < 0 ? '-' : ''}${fmt(amount)} to running total for "${rowName}"`, () => {
+    const d = loadData(currentYear, currentMonth);
+    const target = d[catIdx].rows[rowIdx];
+    target.runningTotal = String((parseFloat(target.runningTotal) || 0) + amount);
     saveData(currentYear, currentMonth, d);
     renderBudget();
   });
@@ -1360,7 +1495,7 @@ function renderBudget() {
         </div>
       </div>
       <div class="col-headers">
-        <div class="ch-expense">Expense</div>
+        <div class="ch-expense">${cat.isIncome ? 'Source' : 'Expense'}</div>
         <div class="ch-cost">Cost</div>
         <div class="ch-remaining">Remaining</div>
         <div class="ch-paid">${cat.isIncome ? '' : 'Status'}</div>
@@ -1409,7 +1544,7 @@ function renderBudget() {
       html += `
       <div class="budget-row">
         <div class="cell-expense">
-          <input type="text" placeholder="Expense name" value="${safeExpense}" aria-label="Expense name"
+          <input type="text" placeholder="${cat.isIncome ? 'Income source' : 'Expense name'}" value="${safeExpense}" aria-label="${cat.isIncome ? 'Income source' : 'Expense name'}"
             onchange="updateRow(${catIdx},${rowIdx},'expense',this.value)" />
         </div>
         <div class="cell-cost">
