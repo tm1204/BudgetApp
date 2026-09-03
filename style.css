@@ -460,6 +460,32 @@ main { padding: 16px; }
 
 .bottom-sheet.open { bottom: 0; }
 
+/* Centered Modal — shared component for short, single-purpose entry dialogs
+   (e.g. "Add to Total"); sits mid-screen like a classic dialog rather than
+   sliding up from the bottom like the sheet above */
+.center-modal {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(320px, calc(100vw - 48px));
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  z-index: 101;
+}
+
+.center-modal.open { display: block; }
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1c1c1e;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
 .sheet-handle {
   width: 40px;
   height: 4px;
@@ -686,7 +712,8 @@ main { padding: 16px; }
   .section,
   .chart-container,
   .add-category-btn,
-  .bottom-sheet {
+  .bottom-sheet,
+  .center-modal {
     background: #1c1c1e;
   }
 
@@ -711,7 +738,8 @@ main { padding: 16px; }
   .help-heading,
   .faq-question,
   .sheet-form-input,
-  .sheet-form-btn {
+  .sheet-form-btn,
+  .modal-title {
     color: #f2f2f7;
   }
 

@@ -65,7 +65,7 @@ The app appears on the home screen and launches full-screen like a native app, s
 - **Remove Row** — available from the row menu
 - **Switch Row to Running Total** — available from the row menu (not offered on Income rows — see Running Total Logic below)
 - **Switch Row to Fully Paid** — available from the row menu
-- **Add to Total** — available from the row menu on Running Total rows only; opens a numeric-entry sheet (a proper number field, so mobile shows a numeric keypad rather than the full keyboard) and adds the entered amount to the row's existing running total, instead of having to work out and retype the new figure by hand
+- **Add to Total** — available from the row menu on Running Total rows only; opens a centered numeric-entry dialog (a proper number field, so mobile shows a numeric keypad rather than the full keyboard) and adds the entered amount to the row's existing running total, instead of having to work out and retype the new figure by hand
 - **Move Row Up / Down** — available from the row menu for reordering rows within a category; hidden (not shown disabled) for the first/last row
 - **Expense name** — free text input; labelled **Income source** instead, for rows in the Income category
 - **Column header wording** — the "Expense" column header reads **"Source"** and the "Cost" column header reads **"Amount"** for the Income category, since its rows are income rather than spending
@@ -90,7 +90,7 @@ Each row can operate in one of two modes:
 - For a budgeted expense that gets paid off in parts rather than all at once
 - Switched on via row menu (not offered on Income rows, which are always Fully Paid)
 - Replaces the checkbox with a numeric input
-- **Add to Total** — row menu option that opens a numeric-entry sheet and adds the entered amount to the existing running total, for each part payment as it happens
+- **Add to Total** — row menu option that opens a centered numeric-entry dialog and adds the entered amount to the existing running total, for each part payment as it happens
 - **Budget / Remaining impact** = greater of:
   - budgeted cost
   - entered running total
@@ -359,6 +359,7 @@ Every change to this app — however small — follows the same process:
 | v5.8 | App Permissions moved to the bottom of the main menu; added a Help entry with an in-app User Manual and FAQ; Income's "Expense" wording changed to "Source"/"Income source" since its rows are income, not spending; added a Miscellaneous default category; added "Add to Total" on Running Total rows to add an amount to the existing total instead of retyping it; category and row menu options that don't apply (Income's Rename/Move/Delete, Move Up/Down at either end of a list) are now hidden entirely instead of shown greyed out, which was hard to read in dark mode and cluttered the menu |
 | v5.8.1 | Bug fixes — User Manual/FAQ now use inline SVG icons matching the app's existing icon style instead of placeholder emoji; Income rows can no longer be switched to Running Total mode (the Status column is always blank for Income regardless of mode, so the option was live but functionally inert); Income's "Cost" column/field now reads "Amount"; category menu reordered to Move Up, Move Down, Rename, Change Colour, Delete; Running Total's in-app description repositioned from a savings/debt framing to a spending one — an allocated expense paid off in parts |
 | v5.8.2 | Bug fix — "Add to Total" used the native `prompt()` dialog, which brings up the full keyboard on mobile even though only a number is ever entered; replaced with a numeric-entry sheet screen using a proper number input, so mobile shows a numeric keypad instead |
+| v5.8.3 | Bug fix — v5.8.2's number input still brought up the full keyboard on some mobile/PWA browsers, and moving "Add to Total" into the bottom sheet lost the native `prompt()`'s mid-screen position. Added `inputmode="decimal"` alongside `type="number"` (some browsers pick the on-screen keyboard from `inputmode`, not `type`) and introduced a new centered-modal popup component — a better fit than the bottom sheet for a single input and two buttons — used for "Add to Total" instead |
 
 ---
 

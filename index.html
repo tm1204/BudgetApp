@@ -35,8 +35,13 @@
   <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="handleImportFile(event)" />
 
   <!-- Bottom sheet overlay used for main menu, category menu, colour picker etc -->
-  <div class="sheet-overlay" id="sheetOverlay" onclick="closeSheet()"></div>
+  <div class="sheet-overlay" id="sheetOverlay" onclick="closeOverlay()"></div>
   <div class="bottom-sheet" id="bottomSheet" role="dialog" aria-modal="true" aria-label="BudgetApp menu"></div>
+
+  <!-- Centered modal (shares the overlay above) used for short, single-purpose
+       entry dialogs like "Add to Total" — a bottom sheet reads as a menu, but
+       these are one input and two buttons, closer to a classic dialog -->
+  <div class="center-modal" id="centerModal" role="dialog" aria-modal="true" aria-label="Add to Total"></div>
 
   <!-- Toast used for routine feedback (undo/redo, import results, warnings) -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

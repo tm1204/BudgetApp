@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.8.2';
+const APP_VERSION = '5.8.3';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -555,6 +555,8 @@ function toggleProtection() {
 }
 
 // ── Bottom Sheet (shared popup component) ────────────────────────────────────
+// centerModal shares the same overlay (below) — closeSheet()/closeCenterModal()
+// each only drop the overlay once the other popup isn't also open.
 function openSheet(html) {
   document.getElementById('bottomSheet').innerHTML = html;
   document.getElementById('bottomSheet').classList.add('open');
@@ -563,15 +565,41 @@ function openSheet(html) {
 
 function closeSheet() {
   document.getElementById('bottomSheet').classList.remove('open');
-  document.getElementById('sheetOverlay').classList.remove('open');
+  if (!document.getElementById('centerModal').classList.contains('open')) {
+    document.getElementById('sheetOverlay').classList.remove('open');
+  }
 }
 
-// Lets the bottom sheet (now marked role="dialog") be dismissed with Escape,
-// same as tapping the overlay — only acts while a sheet is actually open
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && document.getElementById('bottomSheet').classList.contains('open')) {
-    closeSheet();
+// ── Centered Modal (shared popup component) ───────────────────────────────────
+// For short, single-purpose entry dialogs (e.g. "Add to Total") where a
+// bottom sheet — which reads as a menu — would be an odd fit for one input
+// and two buttons.
+function openCenterModal(html) {
+  document.getElementById('centerModal').innerHTML = html;
+  document.getElementById('centerModal').classList.add('open');
+  document.getElementById('sheetOverlay').classList.add('open');
+}
+
+function closeCenterModal() {
+  document.getElementById('centerModal').classList.remove('open');
+  if (!document.getElementById('bottomSheet').classList.contains('open')) {
+    document.getElementById('sheetOverlay').classList.remove('open');
   }
+}
+
+// Tapping the shared overlay closes whichever popup is open
+function closeOverlay() {
+  closeSheet();
+  closeCenterModal();
+}
+
+// Lets the bottom sheet / centered modal (both marked role="dialog") be
+// dismissed with Escape, same as tapping the overlay — only acts on
+// whichever is actually open
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('bottomSheet').classList.contains('open')) closeSheet();
+  if (document.getElementById('centerModal').classList.contains('open')) closeCenterModal();
 });
 
 // ── Toast ────────────────────────────────────────────────────────────────────
@@ -1159,7 +1187,7 @@ function openRowMenu(catIdx, rowIdx) {
     </button>`}
 
     ${mode === 'running-total' && !category.isIncome ? `
-    <button class="sheet-option" onclick="openAddToTotalSheet(${catIdx},${rowIdx})">
+    <button class="sheet-option" onclick="openAddToTotalModal(${catIdx},${rowIdx})">
       <span class="sheet-option-icon">➕</span> Add to Total
     </button>` : ''}
 
@@ -1225,42 +1253,39 @@ function moveRow(catIdx, rowIdx, direction) {
   closeSheet();
 }
 
-// Uses a number input in a sheet screen (rather than the native prompt())
-// so mobile browsers show a numeric keypad instead of the full keyboard.
-function openAddToTotalSheet(catIdx, rowIdx) {
+// Centered modal (not a bottom sheet — see openCenterModal) with a numeric
+// entry field, replacing the native prompt() so mobile browsers show a
+// numeric keypad instead of the full keyboard. inputmode="decimal" is set
+// alongside type="number" because some mobile/PWA browsers pick the on-screen
+// keyboard from inputmode rather than type, and fall back to the full
+// keyboard without it.
+function openAddToTotalModal(catIdx, rowIdx) {
+  closeSheet();
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="openRowMenu(${catIdx},${rowIdx})">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">Add to Total</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
-
-    <div class="sheet-form">
-      <input
-        type="number"
-        id="addToTotalInput"
-        class="sheet-form-input"
-        placeholder="Amount"
-        step="0.01"
-        autofocus
-        aria-label="Amount to add to running total"
-        onkeydown="if(event.key==='Enter'){submitAddToTotal(${catIdx},${rowIdx})}"
-      />
-      <div class="sheet-form-actions">
-        <button class="sheet-form-btn" onclick="openRowMenu(${catIdx},${rowIdx})">Cancel</button>
-        <button class="sheet-form-btn primary" onclick="submitAddToTotal(${catIdx},${rowIdx})">Add</button>
-      </div>
+    <div class="modal-title">Add to Total</div>
+    <input
+      type="number"
+      inputmode="decimal"
+      id="addToTotalInput"
+      class="sheet-form-input"
+      placeholder="Amount"
+      step="0.01"
+      autofocus
+      aria-label="Amount to add to running total"
+      onkeydown="if(event.key==='Enter'){submitAddToTotal(${catIdx},${rowIdx})}"
+    />
+    <div class="sheet-form-actions">
+      <button class="sheet-form-btn" onclick="closeCenterModal()">Cancel</button>
+      <button class="sheet-form-btn primary" onclick="submitAddToTotal(${catIdx},${rowIdx})">Add</button>
     </div>
   `;
-  openSheet(html);
+  openCenterModal(html);
 }
 
 function submitAddToTotal(catIdx, rowIdx) {
   const input = document.getElementById('addToTotalInput');
   const amount = parseFloat(input.value);
-  if (isNaN(amount)) { closeSheet(); return; }
+  if (isNaN(amount)) { closeCenterModal(); return; }
 
   const data = loadData(currentYear, currentMonth);
   const row = data[catIdx].rows[rowIdx];
@@ -1275,7 +1300,7 @@ function submitAddToTotal(catIdx, rowIdx) {
     saveData(currentYear, currentMonth, d);
     renderBudget();
   });
-  closeSheet();
+  closeCenterModal();
 }
 
 // ── Pie Chart (SVG donut) ─────────────────────────────────────────────────────

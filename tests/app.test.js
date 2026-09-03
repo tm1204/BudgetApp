@@ -879,13 +879,18 @@ test('"Add to Total" only appears on running-total rows, and adds the entered am
   context.openRowMenu(1, 1); // running-total row
   assert.ok(document.getElementById('bottomSheet').innerHTML.includes('Add to Total'));
 
-  // Tapping "Add to Total" opens a numeric-entry sheet screen (a
-  // type="number" input, rather than the native prompt()) so mobile
-  // browsers show a numeric keypad instead of the full keyboard
-  context.openAddToTotalSheet(1, 1);
-  assert.ok(document.getElementById('bottomSheet').innerHTML.includes('addToTotalInput'));
+  // Tapping "Add to Total" opens a centered modal (not the bottom sheet) with
+  // a numeric input, rather than the native prompt() — closing the
+  // underlying row-options sheet behind it, same as the native prompt() it
+  // replaced used to leave things once dismissed
+  context.openAddToTotalModal(1, 1);
+  assert.ok(document.getElementById('centerModal').innerHTML.includes('addToTotalInput'));
+  assert.ok(document.getElementById('centerModal').classList.contains('open'));
+  assert.ok(!document.getElementById('bottomSheet').classList.contains('open'));
+
   document.getElementById('addToTotalInput').value = '50';
   context.submitAddToTotal(1, 1);
+  assert.ok(!document.getElementById('centerModal').classList.contains('open'));
 
   const saved = JSON.parse(storage.getItem('budget_2026_6'));
   assert.equal(saved[1].rows[1].runningTotal, '300'); // 250 + 50
