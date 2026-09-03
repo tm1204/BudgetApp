@@ -900,6 +900,32 @@ test('"Add to Total" only appears on running-total rows, and adds the entered am
   assert.equal(stack[stack.length - 1].desc, 'Added R 50.00 to running total for "Emergency fund" (July 2026)');
 });
 
+test('row menu lists options in Add to Total, Switch Mode, Move Up, Move Down, Remove Row order', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Savings', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'First', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Middle', cost: '1000', paid: false, mode: 'running-total', runningTotal: '250' },
+        { expense: 'Last', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  context.openRowMenu(1, 1); // middle row, running-total — every option is present
+  const html = document.getElementById('bottomSheet').innerHTML;
+
+  const addIdx = html.indexOf('Add to Total');
+  const switchIdx = html.indexOf('Switch Row to');
+  const upIdx = html.indexOf('Move Up');
+  const downIdx = html.indexOf('Move Down');
+  const removeIdx = html.indexOf('Remove Row');
+  assert.ok([addIdx, switchIdx, upIdx, downIdx, removeIdx].every(i => i !== -1), 'expected all five options to be present for a middle running-total row');
+  assert.ok(addIdx < switchIdx && switchIdx < upIdx && upIdx < downIdx && downIdx < removeIdx, 'Remove Row must always be last');
+});
+
 test('main menu places App Permissions after Undo/Redo, and Help after App Permissions', () => {
   const storage = createStorage({});
   const { context, document } = loadApp({ storage });

@@ -62,11 +62,12 @@ The app appears on the home screen and launches full-screen like a native app, s
 ### 📋 Rows
 - **Add rows** — per category via the "+ Add row" button
 - **Row actions menu** — each row uses a **vertical ellipsis** menu instead of a direct remove button
-- **Remove Row** — available from the row menu
+- **Row menu order** — Add to Total (Running Total rows only), Switch to Fully Paid/Running Total, Move Up, Move Down, Remove Row; Remove Row is always last
+- **Add to Total** — available from the row menu on Running Total rows only; opens a centered numeric-entry dialog (a proper number field, so mobile shows a numeric keypad rather than the full keyboard) and adds the entered amount to the row's existing running total, instead of having to work out and retype the new figure by hand
 - **Switch Row to Running Total** — available from the row menu (not offered on Income rows — see Running Total Logic below)
 - **Switch Row to Fully Paid** — available from the row menu
-- **Add to Total** — available from the row menu on Running Total rows only; opens a centered numeric-entry dialog (a proper number field, so mobile shows a numeric keypad rather than the full keyboard) and adds the entered amount to the row's existing running total, instead of having to work out and retype the new figure by hand
 - **Move Row Up / Down** — available from the row menu for reordering rows within a category; hidden (not shown disabled) for the first/last row
+- **Remove Row** — available from the row menu
 - **Expense name** — free text input; labelled **Income source** instead, for rows in the Income category
 - **Column header wording** — the "Expense" column header reads **"Source"** and the "Cost" column header reads **"Amount"** for the Income category, since its rows are income rather than spending
 - **Cost** — numeric input
@@ -360,6 +361,7 @@ Every change to this app — however small — follows the same process:
 | v5.8.1 | Bug fixes — User Manual/FAQ now use inline SVG icons matching the app's existing icon style instead of placeholder emoji; Income rows can no longer be switched to Running Total mode (the Status column is always blank for Income regardless of mode, so the option was live but functionally inert); Income's "Cost" column/field now reads "Amount"; category menu reordered to Move Up, Move Down, Rename, Change Colour, Delete; Running Total's in-app description repositioned from a savings/debt framing to a spending one — an allocated expense paid off in parts |
 | v5.8.2 | Bug fix — "Add to Total" used the native `prompt()` dialog, which brings up the full keyboard on mobile even though only a number is ever entered; replaced with a numeric-entry sheet screen using a proper number input, so mobile shows a numeric keypad instead |
 | v5.8.3 | Bug fix — v5.8.2's number input still brought up the full keyboard on some mobile/PWA browsers, and moving "Add to Total" into the bottom sheet lost the native `prompt()`'s mid-screen position. Added `inputmode="decimal"` alongside `type="number"` (some browsers pick the on-screen keyboard from `inputmode`, not `type`) and introduced a new centered-modal popup component — a better fit than the bottom sheet for a single input and two buttons — used for "Add to Total" instead |
+| v5.8.4 | Row menu reordered to Add to Total, Switch to Fully Paid/Running Total, Move Up, Move Down, Remove Row — Remove Row is now always last |
 
 ---
 

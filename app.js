@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.8.3';
+const APP_VERSION = '5.8.4';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -1177,19 +1177,15 @@ function openRowMenu(catIdx, rowIdx) {
       <div class="sheet-back-placeholder"></div>
     </div>
 
-    <button class="sheet-option" onclick="removeRow(${catIdx},${rowIdx})">
-      <span class="sheet-option-icon">🗑️</span> Remove Row
-    </button>
+    ${mode === 'running-total' && !category.isIncome ? `
+    <button class="sheet-option" onclick="openAddToTotalModal(${catIdx},${rowIdx})">
+      <span class="sheet-option-icon">➕</span> Add to Total
+    </button>` : ''}
 
     ${category.isIncome ? '' : `
     <button class="sheet-option" onclick="switchRowMode(${catIdx},${rowIdx})">
       <span class="sheet-option-icon">⇄</span> ${switchLabel}
     </button>`}
-
-    ${mode === 'running-total' && !category.isIncome ? `
-    <button class="sheet-option" onclick="openAddToTotalModal(${catIdx},${rowIdx})">
-      <span class="sheet-option-icon">➕</span> Add to Total
-    </button>` : ''}
 
     ${hideUp ? '' : `
     <button class="sheet-option" onclick="moveRow(${catIdx},${rowIdx},-1)">
@@ -1200,6 +1196,10 @@ function openRowMenu(catIdx, rowIdx) {
     <button class="sheet-option" onclick="moveRow(${catIdx},${rowIdx},1)">
       <span class="sheet-option-icon">▼</span> Move Down
     </button>`}
+
+    <button class="sheet-option" onclick="removeRow(${catIdx},${rowIdx})">
+      <span class="sheet-option-icon">🗑️</span> Remove Row
+    </button>
 
     <div class="sheet-version-line">Version ${APP_VERSION}</div>
   `;
