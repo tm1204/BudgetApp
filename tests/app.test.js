@@ -871,7 +871,7 @@ test('"Add to Total" only appears on running-total rows, and adds the entered am
       ] }
     ])
   });
-  const { context, document } = loadApp({ storage, promptReturns: '50' });
+  const { context, document } = loadApp({ storage });
 
   context.openRowMenu(1, 0); // fully-paid row
   assert.ok(!document.getElementById('bottomSheet').innerHTML.includes('Add to Total'));
@@ -879,7 +879,13 @@ test('"Add to Total" only appears on running-total rows, and adds the entered am
   context.openRowMenu(1, 1); // running-total row
   assert.ok(document.getElementById('bottomSheet').innerHTML.includes('Add to Total'));
 
-  context.addToRunningTotal(1, 1);
+  // Tapping "Add to Total" opens a numeric-entry sheet screen (a
+  // type="number" input, rather than the native prompt()) so mobile
+  // browsers show a numeric keypad instead of the full keyboard
+  context.openAddToTotalSheet(1, 1);
+  assert.ok(document.getElementById('bottomSheet').innerHTML.includes('addToTotalInput'));
+  document.getElementById('addToTotalInput').value = '50';
+  context.submitAddToTotal(1, 1);
 
   const saved = JSON.parse(storage.getItem('budget_2026_6'));
   assert.equal(saved[1].rows[1].runningTotal, '300'); // 250 + 50

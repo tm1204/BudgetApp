@@ -1,6 +1,6 @@
 // Cache name — bump this string with every release to force old caches
 // to be cleared and users to be prompted to refresh
-const CACHE_NAME = 'budget-app-v5.8.1';
+const CACHE_NAME = 'budget-app-v5.8.2';
 
 // All app assets cached for offline use
 const ASSETS = [

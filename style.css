@@ -606,6 +606,42 @@ main { padding: 16px; }
   cursor: pointer;
 }
 
+/* Add to Total — numeric amount entry sheet (type="number" gets mobile
+   browsers to show a numeric keypad instead of the full keyboard) */
+.sheet-form { padding: 4px 0 8px; }
+
+.sheet-form-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  font-size: 16px;
+  border: 1px solid #d1d1d6;
+  border-radius: 12px;
+  outline: none;
+  color: #1c1c1e;
+  background: #fff;
+}
+
+.sheet-form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.sheet-form-btn {
+  flex: 1;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #f2f2f7;
+  color: #1c1c1e;
+}
+
+.sheet-form-btn.primary { background: #007aff; color: #fff; }
+
 /* Permissions menu — persistent storage status row */
 .permission-status {
   display: flex;
@@ -673,12 +709,22 @@ main { padding: 16px; }
   .sheet-cancel,
   .row-ellipsis-btn,
   .help-heading,
-  .faq-question {
+  .faq-question,
+  .sheet-form-input,
+  .sheet-form-btn {
     color: #f2f2f7;
   }
 
   .legend-name { color: #c7c7cc; }
-  .sheet-cancel { background: #2c2c2e; }
+  .sheet-cancel,
+  .sheet-form-btn {
+    background: #2c2c2e;
+  }
+  .sheet-form-input {
+    background: #2c2c2e;
+    border-color: #48484a;
+  }
+  .sheet-form-btn.primary { color: #fff; }
   .colour-swatch.selected { border-color: #f2f2f7; }
   .help-text, .faq-answer { color: #c7c7cc; }
 }

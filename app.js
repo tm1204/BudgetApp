@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.8.1';
+const APP_VERSION = '5.8.2';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -1159,7 +1159,7 @@ function openRowMenu(catIdx, rowIdx) {
     </button>`}
 
     ${mode === 'running-total' && !category.isIncome ? `
-    <button class="sheet-option" onclick="addToRunningTotal(${catIdx},${rowIdx})">
+    <button class="sheet-option" onclick="openAddToTotalSheet(${catIdx},${rowIdx})">
       <span class="sheet-option-icon">➕</span> Add to Total
     </button>` : ''}
 
@@ -1225,14 +1225,45 @@ function moveRow(catIdx, rowIdx, direction) {
   closeSheet();
 }
 
-function addToRunningTotal(catIdx, rowIdx) {
-  const data = loadData(currentYear, currentMonth);
-  const row = data[catIdx].rows[rowIdx];
-  const amountStr = prompt('Amount to add to running total:');
-  if (amountStr === null) { closeSheet(); return; }
-  const amount = parseFloat(amountStr);
+// Uses a number input in a sheet screen (rather than the native prompt())
+// so mobile browsers show a numeric keypad instead of the full keyboard.
+function openAddToTotalSheet(catIdx, rowIdx) {
+  const html = `
+    <div class="sheet-header">
+      <button class="sheet-back-btn" onclick="openRowMenu(${catIdx},${rowIdx})">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
+      <div class="sheet-title-inline">Add to Total</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
+
+    <div class="sheet-form">
+      <input
+        type="number"
+        id="addToTotalInput"
+        class="sheet-form-input"
+        placeholder="Amount"
+        step="0.01"
+        autofocus
+        aria-label="Amount to add to running total"
+        onkeydown="if(event.key==='Enter'){submitAddToTotal(${catIdx},${rowIdx})}"
+      />
+      <div class="sheet-form-actions">
+        <button class="sheet-form-btn" onclick="openRowMenu(${catIdx},${rowIdx})">Cancel</button>
+        <button class="sheet-form-btn primary" onclick="submitAddToTotal(${catIdx},${rowIdx})">Add</button>
+      </div>
+    </div>
+  `;
+  openSheet(html);
+}
+
+function submitAddToTotal(catIdx, rowIdx) {
+  const input = document.getElementById('addToTotalInput');
+  const amount = parseFloat(input.value);
   if (isNaN(amount)) { closeSheet(); return; }
 
+  const data = loadData(currentYear, currentMonth);
+  const row = data[catIdx].rows[rowIdx];
   const rowName = row.expense || '(unnamed)';
   // fmt() always returns an absolute value — the minus sign for a negative
   // (correcting) amount has to be added explicitly, same convention used
