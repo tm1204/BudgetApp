@@ -396,6 +396,125 @@ main { padding: 16px; }
   white-space: nowrap;
 }
 
+/* Spending Heatmap — calendar grid under the pie chart, hidden until
+   something has been logged. Darker cell = more spent that day. */
+.heatmap-container {
+  background: white;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  padding: 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+.heatmap-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.heatmap-filter {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid #d1d1d6;
+  border-radius: 8px;
+  background: #fff;
+  color: #1c1c1e;
+}
+
+.heatmap-log-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: #f2f2f7;
+  color: #1c1c1e;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.heatmap-log-btn svg { width: 16px; height: 16px; }
+
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.heatmap-weekday {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8e8e93;
+  padding-bottom: 4px;
+}
+
+.heatmap-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #f2f2f7;
+  font-size: 11px;
+  color: #3a3a3c;
+}
+
+.heatmap-cell.empty { background: none; }
+
+/* Spending Log — reverse-chronological feed inside a bottom sheet */
+.log-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 8px;
+  border-bottom: 1px solid #f2f2f7;
+}
+
+.log-entry-main, .log-entry-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.log-entry-side { align-items: flex-end; }
+
+.log-entry-expense {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1c1c1e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-entry-category {
+  font-size: 12px;
+  color: #8e8e93;
+}
+
+.log-entry-amount {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1c1c1e;
+}
+
+.log-entry-amount.negative { color: #ff3b30; }
+
+.log-entry-date {
+  font-size: 12px;
+  color: #8e8e93;
+  white-space: nowrap;
+}
+
 /* Toast — routine feedback (undo/redo, import results, warnings), replacing
    the native alert() dialog. Non-interactive: pointer-events off while
    hidden so it never blocks a tap on whatever is underneath it. */
@@ -711,6 +830,7 @@ main { padding: 16px; }
 
   .section,
   .chart-container,
+  .heatmap-container,
   .add-category-btn,
   .bottom-sheet,
   .center-modal {
@@ -719,8 +839,17 @@ main { padding: 16px; }
 
   .col-headers,
   .budget-row,
-  .sheet-option {
+  .sheet-option,
+  .log-entry {
     border-bottom-color: rgba(255,255,255,0.08);
+  }
+
+  .heatmap-cell { background: #2c2c2e; }
+  .heatmap-filter,
+  .heatmap-log-btn {
+    background: #2c2c2e;
+    color: #f2f2f7;
+    border-color: #48484a;
   }
 
   .add-category-btn { border-color: #48484a; }
@@ -739,7 +868,10 @@ main { padding: 16px; }
   .faq-question,
   .sheet-form-input,
   .sheet-form-btn,
-  .modal-title {
+  .modal-title,
+  .heatmap-daynum,
+  .log-entry-expense,
+  .log-entry-amount {
     color: #f2f2f7;
   }
 

@@ -97,6 +97,9 @@ Each row can operate in one of two modes:
   - entered running total
 - **In Account impact** = entered running total amount
 - If running total exceeds budgeted cost, the input text turns red
+- Every change to the running total — via Add to Total or by editing the field directly — is logged with a timestamp and feeds the Spending Heatmap/Expense Log below; switching a row away from Running Total clears that row's log
+
+Fully Paid rows don't keep a history of every tick — only a single **paidAt** timestamp, set when the checkbox is ticked and cleared when unticked. Editing the cost while the row is already ticked paid re-stamps paidAt to now, since a changed amount is a new spend, not a retroactive correction to the original one.
 
 ### 🥧 Pie Chart
 - Donut-style chart rendered below the last category
@@ -105,6 +108,15 @@ Each row can operate in one of two modes:
 - Legend alongside chart showing category name and percentage
 - Hidden until at least one expense value is entered
 - Income excluded from chart
+
+### 📊 Spending Heatmap & Expense Log
+- Calendar-style heatmap rendered directly below the pie chart, for the month currently in view
+- One cell per day; darker = more spent that day, coloured by whichever category is selected in the filter (a neutral blue for "All Categories")
+- **Category filter** — a dropdown above the grid, defaulting to "All Categories"; picking a specific category narrows the heatmap to that category's spend only. Resets to "All Categories" whenever you switch month or year
+- **View Log** — button next to the filter, opens a reverse-chronological feed of every logged spend (most recent first), respecting whatever category the filter is currently set to — built to answer "did I already log this?" directly, without having to hunt through categories
+- Hidden entirely until something has been logged, same convention as the pie chart's empty state
+- A "spend event" is either a Running Total row's logged delta (see Running Total Logic above) or a Fully Paid row's paidAt fact — income is always excluded, same as the pie chart
+- Spend history belongs to the row, not a separate record — deleting a row removes its history with it, and nothing needs to stay in sync with renames
 
 ### 🌗 Appearance
 - **Dark mode** — follows the system/browser setting automatically (`prefers-color-scheme`), no in-app toggle
@@ -362,6 +374,7 @@ Every change to this app — however small — follows the same process:
 | v5.8.2 | Bug fix — "Add to Total" used the native `prompt()` dialog, which brings up the full keyboard on mobile even though only a number is ever entered; replaced with a numeric-entry sheet screen using a proper number input, so mobile shows a numeric keypad instead |
 | v5.8.3 | Bug fix — v5.8.2's number input still brought up the full keyboard on some mobile/PWA browsers, and moving "Add to Total" into the bottom sheet lost the native `prompt()`'s mid-screen position. Added `inputmode="decimal"` alongside `type="number"` (some browsers pick the on-screen keyboard from `inputmode`, not `type`) and introduced a new centered-modal popup component — a better fit than the bottom sheet for a single input and two buttons — used for "Add to Total" instead |
 | v5.8.4 | Row menu reordered to Add to Total, Switch to Fully Paid/Running Total, Move Up, Move Down, Remove Row — Remove Row is now always last |
+| v5.9 | Added a spending heatmap and expense log, rendered below the pie chart — motivated by a real case where a purchase was made in a hurry and it wasn't clear whether it had already been logged, requiring repeated undo/redo just to check. Running Total rows now log every add/edit as a timestamped delta; Fully Paid rows track a single `paidAt` timestamp (set when ticked paid, cleared when unticked, re-stamped if cost is edited while already paid — a changed amount is a new spend, not a retroactive edit). The heatmap has a category filter (defaults to "All Categories") and a "View Log" button opening a reverse-chronological feed, both scoped to whichever category is selected. Spend history is cleared when a row switches mode or when a templated month resets it, same as `paid`/`runningTotal` already did |
 
 ---
 

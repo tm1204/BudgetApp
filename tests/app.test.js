@@ -1047,3 +1047,243 @@ test('User Manual and FAQ use inline SVG icons matching the app\'s existing icon
   assert.ok(html.includes('M4 19.5V5.5A2.5 2.5 0 0 1 6.5 3H12v18H6.5a2.5 2.5 0 0 0-2.5 2.5'));
   assert.ok(html.includes('M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.35 0-2.62-.32-3.75-.9L3 20l1.1-4.4A8.5 8.5 0 1 1 21 11.5z'));
 });
+
+// ── Spend History (log / paidAt) & Spending Heatmap ─────────────────────────
+
+test('legacy rows saved before spend-history fields existed load with an empty log and null paidAt', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: true, mode: 'fully-paid', runningTotal: '' } // pre-v5.9 shape, no log/paidAt
+      ] }
+    ])
+  });
+  const { context } = loadApp({ storage });
+
+  const data = context.loadData(2026, 6);
+  assert.deepEqual(data[1].rows[0].log, []);
+  assert.equal(data[1].rows[0].paidAt, null);
+});
+
+test('DEFAULT_CATEGORIES fallback rows never share a log array across separate loadData() calls (regression: array field aliasing)', () => {
+  // No budget data saved for any month — every loadData() call below falls
+  // back to DEFAULT_CATEGORIES, which is exactly the scenario that risked
+  // every fallback row sharing one array reference (see normalizeRow()).
+  const storage = createStorage({});
+  const { context } = loadApp({ storage });
+
+  const dataA = context.loadData(2026, 0);
+  dataA[1].rows[0].log.push({ timestamp: '2026-01-01T12:00:00.000Z', amount: 5 });
+
+  const dataB = context.loadData(2026, 1); // different month, same fallback source
+  assert.equal(dataB[1].rows[0].log.length, 0, 'a fresh loadData() call must not see entries pushed onto a previous fallback copy');
+
+  const dataA2 = context.loadData(2026, 0); // same month again — nothing was ever saved, so this also falls back fresh
+  assert.equal(dataA2[1].rows[0].log.length, 0, 'without an explicit save, a later loadData() call should get a fresh fallback, not the mutated in-memory copy');
+});
+
+test('ticking "Paid" on a fully-paid row stamps paidAt; unticking clears it', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }
+      ] }
+    ])
+  });
+  const { context } = loadApp({ storage });
+
+  context.updateRow(1, 0, 'paid', true);
+  let saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].paid, true);
+  assert.equal(typeof saved[1].rows[0].paidAt, 'string');
+  assert.ok(!isNaN(new Date(saved[1].rows[0].paidAt).getTime()), 'paidAt should be a valid timestamp');
+
+  context.updateRow(1, 0, 'paid', false);
+  saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].paid, false);
+  assert.equal(saved[1].rows[0].paidAt, null);
+});
+
+test('editing cost on an already-paid row re-stamps paidAt; editing cost while unpaid leaves paidAt untouched', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2020-01-01T00:00:00.000Z' },
+        { expense: 'Bread', cost: '5', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }
+      ] }
+    ])
+  });
+  const { context } = loadApp({ storage });
+
+  // Already paid — a cost edit is a new spend happening now, not a
+  // retroactive edit to the old spend's date
+  context.updateRow(1, 0, 'cost', '15');
+  let saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].cost, '15');
+  assert.notEqual(saved[1].rows[0].paidAt, '2020-01-01T00:00:00.000Z', 'the stale paidAt should be replaced, not left pointing at the old amount\'s date');
+  assert.ok(!isNaN(new Date(saved[1].rows[0].paidAt).getTime()));
+
+  // Not yet paid — editing cost is just budgeting, not a spend event
+  context.updateRow(1, 1, 'cost', '7');
+  saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[1].paidAt, null, 'an unpaid row\'s cost edit is not a spend event');
+});
+
+test('directly editing a running-total field logs the delta, same convention "Add to Total" uses', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Savings', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Emergency fund', cost: '1000', paid: false, mode: 'running-total', runningTotal: '250', log: [], paidAt: null }
+      ] }
+    ])
+  });
+  const { context } = loadApp({ storage });
+
+  context.updateRow(1, 0, 'runningTotal', '300');
+  let saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].runningTotal, '300');
+  assert.equal(saved[1].rows[0].log.length, 1);
+  assert.equal(saved[1].rows[0].log[0].amount, 50);
+
+  // A correction back down logs a negative delta rather than removing the entry
+  context.updateRow(1, 0, 'runningTotal', '280');
+  saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].log.length, 2);
+  assert.equal(saved[1].rows[0].log[1].amount, -20);
+
+  // Editing to the same value is not a spend event
+  context.updateRow(1, 0, 'runningTotal', '280');
+  saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].log.length, 2, 'a no-op edit (same value) should not add a log entry');
+});
+
+test('"Add to Total" appends a log entry for the amount added', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Savings', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Emergency fund', cost: '1000', paid: false, mode: 'running-total', runningTotal: '250', log: [], paidAt: null }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  context.openAddToTotalModal(1, 0);
+  document.getElementById('addToTotalInput').value = '50';
+  context.submitAddToTotal(1, 0);
+
+  const saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].runningTotal, '300');
+  assert.equal(saved[1].rows[0].log.length, 1);
+  assert.equal(saved[1].rows[0].log[0].amount, 50);
+  assert.equal(typeof saved[1].rows[0].log[0].timestamp, 'string');
+});
+
+test('switching a row\'s mode clears its spend history (log and paidAt), regardless of direction', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Groceries', cost: '200', paid: false, mode: 'running-total', runningTotal: '80',
+          log: [{ timestamp: '2026-07-01T12:00:00.000Z', amount: 80 }], paidAt: null },
+        { expense: 'Rent', cost: '5000', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-01T12:00:00.000Z' }
+      ] }
+    ])
+  });
+  const { context } = loadApp({ storage });
+
+  context.switchRowMode(1, 0); // running-total -> fully-paid
+  let saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.deepEqual(saved[1].rows[0].log, [], 'log should be cleared when leaving running-total mode');
+  assert.equal(saved[1].rows[0].paidAt, null);
+  assert.equal(saved[1].rows[0].mode, 'fully-paid');
+
+  context.switchRowMode(1, 1); // fully-paid -> running-total
+  saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.deepEqual(saved[1].rows[1].log, [], 'log should start fresh when entering running-total mode');
+  assert.equal(saved[1].rows[1].paidAt, null, 'paidAt should be cleared when leaving fully-paid mode');
+  assert.equal(saved[1].rows[1].mode, 'running-total');
+  assert.equal(saved[1].rows[1].paid, false);
+});
+
+test('spending heatmap is hidden when nothing has been logged yet', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }
+      ] }
+    ])
+  });
+  const { document } = loadApp({ storage });
+  assert.equal(document.getElementById('heatmapContainer').innerHTML, '');
+});
+
+test('spending heatmap shows logged spend by day, and its category filter narrows both the heatmap and the expense log', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }), // July 2026
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-05T12:00:00.000Z' }
+      ] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Petrol', cost: '500', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-10T12:00:00.000Z' }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  let heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(heatmapHtml.includes('All Categories'));
+  assert.ok(heatmapHtml.includes(`July 5 — ${context.fmt(10)}`));
+  assert.ok(heatmapHtml.includes(`July 10 — ${context.fmt(500)}`));
+
+  context.setHeatmapFilter('Fuel');
+  heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(heatmapHtml.includes('July 5 — no spend logged'), 'Food\'s spend should be excluded once filtered to Fuel');
+  assert.ok(heatmapHtml.includes(`July 10 — ${context.fmt(500)}`));
+
+  context.openExpenseLog();
+  const logHtml = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(logHtml.includes('Expense Log — Fuel'));
+  assert.ok(logHtml.includes('Petrol'));
+  assert.ok(!logHtml.includes('Milk'), 'the log should respect the heatmap\'s active category filter');
+});
+
+test('switching month resets the heatmap category filter back to "All Categories"', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Petrol', cost: '500', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-10T12:00:00.000Z' }
+      ] }
+    ]),
+    budget_2026_7: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Petrol', cost: '400', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-08-02T12:00:00.000Z' }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  context.setHeatmapFilter('Fuel');
+  assert.ok(document.getElementById('heatmapContainer').innerHTML.includes('value="Fuel" selected'));
+
+  context.switchMonth(7); // August
+  const heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(heatmapHtml.includes('value="all" selected'), 'the filter should reset to All Categories on month switch');
+});

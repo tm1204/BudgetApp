@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.8.4';
+const APP_VERSION = '5.9';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -46,19 +46,26 @@ const PALETTE_COLOUR_MIGRATIONS = {
 
 // Default category set used when a month has no saved data yet
 const DEFAULT_CATEGORIES = [
-  { name: 'Income',        colour: INCOME_COLOUR, isIncome: true,  rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-  { name: 'Tithes',        colour: PALETTE[0],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-  { name: 'Home',          colour: PALETTE[1],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-  { name: 'Vehicles',      colour: PALETTE[2],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-  { name: 'Debits',        colour: PALETTE[3],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-  { name: 'Food',          colour: PALETTE[4],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-  { name: 'Fuel',          colour: PALETTE[5],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-  { name: 'Entertainment', colour: PALETTE[6],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-  { name: 'Miscellaneous', colour: PALETTE[7],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+  { name: 'Income',        colour: INCOME_COLOUR, isIncome: true,  rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+  { name: 'Tithes',        colour: PALETTE[0],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+  { name: 'Home',          colour: PALETTE[1],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+  { name: 'Vehicles',      colour: PALETTE[2],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+  { name: 'Debits',        colour: PALETTE[3],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+  { name: 'Food',          colour: PALETTE[4],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+  { name: 'Fuel',          colour: PALETTE[5],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+  { name: 'Entertainment', colour: PALETTE[6],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+  { name: 'Miscellaneous', colour: PALETTE[7],    isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] }
 ];
 
 let currentYear  = CURRENT_YEAR;
 let currentMonth = new Date().getMonth();
+
+// Category filter for the spending heatmap/expense log — 'all' or a
+// category name. Not persisted — deliberately resets to 'all' on reload and
+// on every month/year switch (see switchMonth()/renderYearSelect()) so it
+// never silently filters a different month's view down to a category that
+// looks empty for no obvious reason.
+let heatmapCategoryFilter = 'all';
 
 // Restore last viewed month/year if the app was previously opened —
 // keeps the user on whatever month they were looking at when they last
@@ -98,6 +105,8 @@ const ICON_PROTECTED = `<svg width="20" height="20" viewBox="0 0 24 24" fill="no
 const ICON_UNPROTECTED = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"/></svg>`;
 
 const ICON_BACK = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>`;
+
+const ICON_LOG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`;
 
 // ── Update Prompt / Reload Coordination ──────────────────────────────────────
 // Both the service worker's own lifecycle events and the version.json check
@@ -440,7 +449,21 @@ function normalizeRow(row) {
     cost: row.cost ?? '',
     paid: row.paid ?? false,
     mode: row.mode ?? 'fully-paid',
-    runningTotal: row.runningTotal ?? ''
+    runningTotal: row.runningTotal ?? '',
+    // log: append-only spend history for running-total rows — each entry is
+    // {timestamp, amount}, amount being the delta applied at that point
+    // (can be negative for a correction). paidAt: when a fully-paid row was
+    // last marked paid (null if currently unpaid) — a single fact, not a
+    // history, since only the most recent paid transition represents an
+    // actual spend (see updateRow()).
+    // Copied rather than referenced — rows can be cloned from
+    // DEFAULT_CATEGORIES/a template (see loadData()), and log is the first
+    // array-valued row field; without a copy here, every row cloned from the
+    // same source would share one array, and a later push() onto one row's
+    // log would silently mutate all the others (including the module-level
+    // DEFAULT_CATEGORIES constant itself).
+    log: Array.isArray(row.log) ? [...row.log] : [],
+    paidAt: typeof row.paidAt === 'string' ? row.paidAt : null
   };
 }
 
@@ -449,7 +472,7 @@ function loadData(year, month) {
   if (raw) {
     const parsed = safeParseJSON(raw, null);
     if (!Array.isArray(parsed)) {
-      return DEFAULT_CATEGORIES.map(c => ({ ...c, rows: c.rows.map(r => ({ ...r })) }));
+      return DEFAULT_CATEGORIES.map(c => ({ ...c, rows: c.rows.map(normalizeRow) }));
     }
 
     // Enforce isIncome strictly by index 0 — protects against legacy saved
@@ -469,11 +492,11 @@ function loadData(year, month) {
         // migrateOldPaletteColour runs first so categories saved before the
         // contrast fix pick up their corrected colour automatically.
         colour: sanitizeColour(migrateOldPaletteColour(normalizedCat.colour)) || (idx === 0 ? INCOME_COLOUR : PALETTE[idx % PALETTE.length]),
-        rows: Array.isArray(normalizedCat.rows) ? normalizedCat.rows.map(normalizeRow) : fallbackCat.rows.map(r => ({ ...r }))
+        rows: Array.isArray(normalizedCat.rows) ? normalizedCat.rows.map(normalizeRow) : fallbackCat.rows.map(normalizeRow)
       };
     });
   }
-  return DEFAULT_CATEGORIES.map(c => ({ ...c, rows: c.rows.map(r => ({ ...r })) }));
+  return DEFAULT_CATEGORIES.map(c => ({ ...c, rows: c.rows.map(normalizeRow) }));
 }
 
 // Returns false if the write failed (e.g. storage quota full). Callers still
@@ -508,7 +531,12 @@ function setAsTemplate() {
         cost: r.cost,
         paid: false,
         mode: r.mode ?? 'fully-paid',
-        runningTotal: ''
+        runningTotal: '',
+        // Spend history is specific to the month it happened in — a
+        // templated month starts with a clean slate, same reasoning as
+        // resetting paid/runningTotal above
+        log: [],
+        paidAt: null
       }))
     }));
     let count = 0;
@@ -1144,7 +1172,7 @@ function addCategory() {
   withUndo(`Added category "${name.trim()}"`, () => {
     const data   = loadData(currentYear, currentMonth);
     const colour = getNextColour(data);
-    data.push({ name: name.trim(), colour, isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] });
+    data.push({ name: name.trim(), colour, isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] });
     saveData(currentYear, currentMonth, data);
     renderBudget();
   });
@@ -1217,6 +1245,12 @@ function switchRowMode(catIdx, rowIdx) {
     const d = loadData(currentYear, currentMonth);
     const target = d[catIdx].rows[rowIdx];
     target.mode = toMode;
+    // Spend history belongs to whichever mode recorded it — a log entry or
+    // paidAt fact from the old mode has no meaning once the row no longer
+    // tracks that way, so both are cleared regardless of which direction
+    // the switch goes
+    target.log = [];
+    target.paidAt = null;
 
     if (toMode === 'running-total') {
       target.paid = false;
@@ -1297,6 +1331,7 @@ function submitAddToTotal(catIdx, rowIdx) {
     const d = loadData(currentYear, currentMonth);
     const target = d[catIdx].rows[rowIdx];
     target.runningTotal = String((parseFloat(target.runningTotal) || 0) + amount);
+    target.log.push({ timestamp: new Date().toISOString(), amount });
     saveData(currentYear, currentMonth, d);
     renderBudget();
   });
@@ -1365,6 +1400,159 @@ function renderChart(data) {
       </svg>
       <div class="chart-legend">${legend}</div>
     </div>`;
+}
+
+// ── Spending Heatmap & Expense Log ──────────────────────────────────────────
+// A "spend event" is either an entry in a running-total row's log (each
+// "Add to Total"/direct edit is its own dated delta), or — for a fully-paid
+// row — a single synthetic event derived from paid/paidAt/cost, since
+// fully-paid rows don't keep history, just "when was this most recently
+// marked paid" (see updateRow()). Both are combined here rather than stored
+// together, so a deleted/renamed row can never leave a stale reference
+// behind and nothing needs to stay in sync with row edits after the fact.
+// Income is always excluded, same as the pie chart.
+function getSpendEvents(data) {
+  const events = [];
+  data.forEach(cat => {
+    if (cat.isIncome) return;
+    cat.rows.forEach(row => {
+      const mode = row.mode ?? 'fully-paid';
+      const expense = row.expense || '(unnamed)';
+      if (mode === 'running-total') {
+        (row.log || []).forEach(entry => {
+          const amount = parseFloat(entry.amount);
+          if (!isNaN(amount) && typeof entry.timestamp === 'string') {
+            events.push({ category: cat.name, colour: cat.colour, expense, timestamp: entry.timestamp, amount });
+          }
+        });
+      } else if (row.paid && typeof row.paidAt === 'string') {
+        events.push({ category: cat.name, colour: cat.colour, expense, timestamp: row.paidAt, amount: parseFloat(row.cost) || 0 });
+      }
+    });
+  });
+  return events;
+}
+
+// Converts a sanitized 6-digit hex colour (sanitizeColour() already rejects
+// anything else) to an rgba() string so heatmap cell intensity can be
+// expressed as opacity rather than needing HSL lightness math.
+function hexToRgba(hex, alpha) {
+  const m = /^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/.exec(hex || '');
+  if (!m) return `rgba(10,132,255,${alpha})`;
+  const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// Calendar-style heatmap of the currently viewed month, one cell per day —
+// darker = more spent that day, coloured by the selected category (or a
+// neutral blue for "All Categories"). Hidden entirely if nothing has been
+// logged yet this month, same empty-state convention as the pie chart.
+function renderHeatmap(data) {
+  const allEvents = getSpendEvents(data);
+  if (allEvents.length === 0) return '';
+
+  const events = heatmapCategoryFilter === 'all'
+    ? allEvents
+    : allEvents.filter(e => e.category === heatmapCategoryFilter);
+
+  const daysInMonth   = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const firstWeekday  = new Date(currentYear, currentMonth, 1).getDay(); // 0 = Sunday
+  const dayTotals     = new Array(daysInMonth + 1).fill(0);
+
+  events.forEach(e => {
+    const d = new Date(e.timestamp);
+    if (isNaN(d.getTime())) return;
+    if (d.getFullYear() === currentYear && d.getMonth() === currentMonth) {
+      dayTotals[d.getDate()] += e.amount;
+    }
+  });
+
+  const maxSpend = Math.max(0, ...dayTotals.slice(1));
+  const expenseCats = data.filter(c => !c.isIncome);
+  const filterColour = heatmapCategoryFilter === 'all'
+    ? '#0a84ff'
+    : (expenseCats.find(c => c.name === heatmapCategoryFilter)?.colour || '#0a84ff');
+
+  const options = [`<option value="all"${heatmapCategoryFilter === 'all' ? ' selected' : ''}>All Categories</option>`]
+    .concat(expenseCats.map(c =>
+      `<option value="${escapeHtml(c.name)}"${heatmapCategoryFilter === c.name ? ' selected' : ''}>${escapeHtml(c.name)}</option>`
+    )).join('');
+
+  const weekdayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+    .map(l => `<div class="heatmap-weekday">${l}</div>`).join('');
+
+  let cells = '';
+  for (let i = 0; i < firstWeekday; i++) cells += `<div class="heatmap-cell empty"></div>`;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const amount = dayTotals[day];
+    const intensity = amount > 0 && maxSpend > 0 ? Math.max(0.18, amount / maxSpend) : 0;
+    const style = intensity > 0 ? ` style="background:${hexToRgba(filterColour, intensity)}"` : '';
+    const title = escapeHtml(`${MONTHS[currentMonth]} ${day} — ${amount > 0 ? fmt(amount) : 'no spend logged'}`);
+    cells += `<div class="heatmap-cell"${style} title="${title}"><span class="heatmap-daynum">${day}</span></div>`;
+  }
+
+  return `
+    <div class="heatmap-container">
+      <div class="heatmap-header">
+        <select class="heatmap-filter" onchange="setHeatmapFilter(this.value)" aria-label="Filter heatmap by category">
+          ${options}
+        </select>
+        <button class="heatmap-log-btn" onclick="openExpenseLog()">${ICON_LOG} View Log</button>
+      </div>
+      <div class="heatmap-grid">
+        ${weekdayLabels}
+        ${cells}
+      </div>
+    </div>`;
+}
+
+function setHeatmapFilter(value) {
+  heatmapCategoryFilter = value;
+  const el = document.getElementById('heatmapContainer');
+  if (el) el.innerHTML = renderHeatmap(loadData(currentYear, currentMonth));
+}
+
+// Reverse-chronological feed of spend events, respecting whatever category
+// the heatmap dropdown is currently set to — answers "did I already log
+// this?" directly, which is what motivated this feature in the first place.
+function openExpenseLog() {
+  const data = loadData(currentYear, currentMonth);
+  const events = getSpendEvents(data)
+    .filter(e => heatmapCategoryFilter === 'all' || e.category === heatmapCategoryFilter)
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  const rows = events.length === 0
+    ? `<div class="help-text">No spending logged yet${heatmapCategoryFilter === 'all' ? '' : ` for ${escapeHtml(heatmapCategoryFilter)}`}.</div>`
+    : events.map(e => {
+        const d = new Date(e.timestamp);
+        const dateLabel = isNaN(d.getTime()) ? '' :
+          `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} · ${d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}`;
+        const negative = e.amount < 0;
+        return `
+          <div class="log-entry">
+            <div class="log-entry-main">
+              <span class="log-entry-expense">${escapeHtml(e.expense)}</span>
+              <span class="log-entry-category">${escapeHtml(e.category)}</span>
+            </div>
+            <div class="log-entry-side">
+              <span class="log-entry-amount ${negative ? 'negative' : ''}">${negative ? '-' : ''}${fmt(e.amount)}</span>
+              <span class="log-entry-date">${escapeHtml(dateLabel)}</span>
+            </div>
+          </div>`;
+      }).join('');
+
+  const html = `
+    <div class="sheet-header">
+      <button class="sheet-back-btn" onclick="closeSheet()">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
+      <div class="sheet-title-inline">Expense Log${heatmapCategoryFilter === 'all' ? '' : ` — ${escapeHtml(heatmapCategoryFilter)}`}</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>
+    ${rows}
+    <div class="sheet-version-line">Version ${APP_VERSION}</div>
+  `;
+  openSheet(html);
 }
 
 // ── Formatting & Calculations ────────────────────────────────────────────────
@@ -1464,6 +1652,7 @@ function renderYearSelect() {
   sel.onchange = () => {
     currentYear = parseInt(sel.value);
     saveLastViewedMonth(currentYear, currentMonth); // remember new year selection too
+    heatmapCategoryFilter = 'all';
     renderMonthTabs();
     renderBudget();
   };
@@ -1501,6 +1690,7 @@ function renderMonthTabs() {
 function switchMonth(m) {
   currentMonth = m;
   saveLastViewedMonth(currentYear, currentMonth); // remember this as the last viewed month
+  heatmapCategoryFilter = 'all';
   renderMonthTabs();
   renderBudget();
 }
@@ -1629,6 +1819,10 @@ function renderBudget() {
   // exists. Wrapped so updateComputedValues() can refresh just this subtree.
   html += `<div id="chartContainer">${renderChart(data)}</div>`;
 
+  // Spending heatmap — sits directly under the pie chart, wrapped the same
+  // way so a row edit can refresh it without a full page rebuild
+  html += `<div id="heatmapContainer">${renderHeatmap(data)}</div>`;
+
   html += `<button class="add-category-btn" onclick="addCategory()">+ Add Category</button>`;
 
   document.getElementById('budgetContent').innerHTML = html;
@@ -1670,6 +1864,9 @@ function updateComputedValues() {
 
   const chartEl = document.getElementById('chartContainer');
   if (chartEl) chartEl.innerHTML = renderChart(data);
+
+  const heatmapEl = document.getElementById('heatmapContainer');
+  if (heatmapEl) heatmapEl.innerHTML = renderHeatmap(data);
 }
 
 function setText(id, text) {
@@ -1699,7 +1896,28 @@ function updateRow(catIdx, rowIdx, field, value) {
 
   withUndo(`Edited ${fieldLabel} of "${expenseName}"`, () => {
     const d = loadData(currentYear, currentMonth);
-    d[catIdx].rows[rowIdx][field] = value;
+    const target = d[catIdx].rows[rowIdx];
+    const mode = target.mode ?? 'fully-paid';
+
+    // Track when a spend actually happened, for the heatmap/expense log.
+    // Fully-paid rows aren't an event history — paidAt is a single fact
+    // (when the row was most recently marked paid), so it's just
+    // overwritten/cleared rather than appended to. Editing cost while
+    // already paid counts as a fresh spend happening now — the old date
+    // would otherwise be shown against a since-changed amount.
+    if (field === 'paid') {
+      target.paidAt = value ? new Date().toISOString() : null;
+    } else if (field === 'cost' && mode === 'fully-paid' && target.paid) {
+      target.paidAt = new Date().toISOString();
+    } else if (field === 'runningTotal' && mode === 'running-total') {
+      // Direct edits to the field (as opposed to the "Add to Total" modal —
+      // see submitAddToTotal()) still represent a spend event; log the
+      // delta, not the absolute value, same convention "Add to Total" uses
+      const delta = (parseFloat(value) || 0) - (parseFloat(target.runningTotal) || 0);
+      if (delta !== 0) target.log.push({ timestamp: new Date().toISOString(), amount: delta });
+    }
+
+    target[field] = value;
     const saved = saveData(currentYear, currentMonth, d);
     // On success, patch just the numbers that changed — the input the user
     // just edited already shows what they typed, so there's no need to
@@ -1716,7 +1934,7 @@ function addRow(catIdx) {
   const catName = data[catIdx].name;
   withUndo(`Added row to "${catName}"`, () => {
     const d = loadData(currentYear, currentMonth);
-    d[catIdx].rows.push({ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' });
+    d[catIdx].rows.push({ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null });
     saveData(currentYear, currentMonth, d);
     renderBudget();
   });
