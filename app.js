@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.9';
+const APP_VERSION = '5.9.1';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -1488,7 +1488,10 @@ function renderHeatmap(data) {
     const intensity = amount > 0 && maxSpend > 0 ? Math.max(0.18, amount / maxSpend) : 0;
     const style = intensity > 0 ? ` style="background:${hexToRgba(filterColour, intensity)}"` : '';
     const title = escapeHtml(`${MONTHS[currentMonth]} ${day} — ${amount > 0 ? fmt(amount) : 'no spend logged'}`);
-    cells += `<div class="heatmap-cell"${style} title="${title}"><span class="heatmap-daynum">${day}</span></div>`;
+    // title gives desktop/browser hover a tooltip, but this is a phone-only
+    // PWA with no hover — tapping shows the same text as a toast, which is
+    // how the app already surfaces this kind of brief info everywhere else
+    cells += `<div class="heatmap-cell"${style} title="${title}" onclick="showDaySpend(${day},${amount})"><span class="heatmap-daynum">${day}</span></div>`;
   }
 
   return `
@@ -1504,6 +1507,12 @@ function renderHeatmap(data) {
         ${cells}
       </div>
     </div>`;
+}
+
+// Tapping a heatmap cell — the touch equivalent of the cell's hover title,
+// since a phone has no hover state to reveal it otherwise
+function showDaySpend(day, amount) {
+  showToast(`${MONTHS[currentMonth]} ${day} — ${amount > 0 ? fmt(amount) : 'no spend logged'}`);
 }
 
 function setHeatmapFilter(value) {

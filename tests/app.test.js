@@ -1262,6 +1262,31 @@ test('spending heatmap shows logged spend by day, and its category filter narrow
   assert.ok(!logHtml.includes('Milk'), 'the log should respect the heatmap\'s active category filter');
 });
 
+test('tapping a heatmap cell shows the same day/amount as a toast — a phone has no hover to reveal the title attribute', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }), // July 2026
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-05T12:00:00.000Z' }
+      ] }
+    ])
+  });
+  const { context, document, toasts } = loadApp({ storage });
+
+  // Every day cell is wired with an onclick, not just days with spend —
+  // tapping an empty day should still confirm nothing was logged
+  const heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(heatmapHtml.includes('onclick="showDaySpend(5,10)"'), 'day 5 should be wired to show its logged R10 spend');
+  assert.ok(heatmapHtml.includes('onclick="showDaySpend(6,0)"'), 'a day with nothing logged should still be tappable');
+
+  context.showDaySpend(5, 10);
+  assert.equal(toasts[toasts.length - 1], `July 5 — ${context.fmt(10)}`);
+
+  context.showDaySpend(6, 0);
+  assert.equal(toasts[toasts.length - 1], 'July 6 — no spend logged');
+});
+
 test('switching month resets the heatmap category filter back to "All Categories"', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),

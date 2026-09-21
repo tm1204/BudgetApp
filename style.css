@@ -465,9 +465,10 @@ main { padding: 16px; }
   background: #f2f2f7;
   font-size: 11px;
   color: #3a3a3c;
+  cursor: pointer;
 }
 
-.heatmap-cell.empty { background: none; }
+.heatmap-cell.empty { background: none; cursor: default; }
 
 /* Spending Log — reverse-chronological feed inside a bottom sheet */
 .log-entry {
