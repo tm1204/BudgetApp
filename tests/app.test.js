@@ -1262,32 +1262,50 @@ test('spending heatmap shows logged spend by day, and its category filter narrow
   assert.ok(!logHtml.includes('Milk'), 'the log should respect the heatmap\'s active category filter');
 });
 
-test('tapping a heatmap cell shows the same day/amount as a toast — a phone has no hover to reveal the title attribute', () => {
+test('tapping a heatmap cell expands an inline day-summary panel listing every spend that day, and tapping it again collapses it', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }), // July 2026
     budget_2026_6: JSON.stringify([
       { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
       { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
-        { expense: 'Milk', cost: '10', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-05T12:00:00.000Z' }
+        { expense: 'Milk', cost: '10', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-05T09:00:00.000Z' }
+      ] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Petrol', cost: '1000', paid: false, mode: 'running-total', runningTotal: '40',
+          log: [{ timestamp: '2026-07-05T15:30:00.000Z', amount: 40 }], paidAt: null }
       ] }
     ])
   });
-  const { context, document, toasts } = loadApp({ storage });
+  const { context, document } = loadApp({ storage });
 
-  // Every day cell is wired with an onclick, not just days with spend —
-  // tapping an empty day should still confirm nothing was logged
-  const heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
-  assert.ok(heatmapHtml.includes('onclick="showDaySpend(5,10)"'), 'day 5 should be wired to show its logged R10 spend');
-  assert.ok(heatmapHtml.includes('onclick="showDaySpend(6,0)"'), 'a day with nothing logged should still be tappable');
+  // No panel before anything is selected
+  assert.ok(!document.getElementById('heatmapContainer').innerHTML.includes('heatmap-day-summary'));
 
-  context.showDaySpend(5, 10);
-  assert.equal(toasts[toasts.length - 1], `July 5 — ${context.fmt(10)}`);
+  context.selectHeatmapDay(5);
+  let heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(heatmapHtml.includes('heatmap-cell selected'), 'the tapped cell should be visually marked selected');
+  assert.ok(heatmapHtml.includes(`July 5 — ${context.fmt(50)}`), 'the panel header should total both events for the day');
+  assert.ok(heatmapHtml.includes('Milk') && heatmapHtml.includes('Petrol'), 'both spends that made up the day should be itemized');
 
-  context.showDaySpend(6, 0);
-  assert.equal(toasts[toasts.length - 1], 'July 6 — no spend logged');
+  // Narrowing the category filter while a day is selected should narrow the
+  // panel too, not close it — comparing one day across categories is a
+  // reasonable thing to want, not a reason to lose the selection
+  context.setHeatmapFilter('Fuel');
+  heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(heatmapHtml.includes(`July 5 — ${context.fmt(40)}`));
+  assert.ok(heatmapHtml.includes('Petrol') && !heatmapHtml.includes('Milk'));
+
+  // Tapping the same day again collapses the panel
+  context.selectHeatmapDay(5);
+  assert.ok(!document.getElementById('heatmapContainer').innerHTML.includes('heatmap-day-summary'));
+
+  // A day with nothing logged shows an explicit empty message, not a blank panel
+  context.selectHeatmapDay(6);
+  heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(heatmapHtml.includes('No spending logged this day.'));
 });
 
-test('switching month resets the heatmap category filter back to "All Categories"', () => {
+test('switching month resets the heatmap category filter and the selected day', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1306,9 +1324,13 @@ test('switching month resets the heatmap category filter back to "All Categories
   const { context, document } = loadApp({ storage });
 
   context.setHeatmapFilter('Fuel');
-  assert.ok(document.getElementById('heatmapContainer').innerHTML.includes('value="Fuel" selected'));
+  context.selectHeatmapDay(10);
+  let heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(heatmapHtml.includes('value="Fuel" selected'));
+  assert.ok(heatmapHtml.includes('heatmap-day-summary'));
 
   context.switchMonth(7); // August
-  const heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
   assert.ok(heatmapHtml.includes('value="all" selected'), 'the filter should reset to All Categories on month switch');
+  assert.ok(!heatmapHtml.includes('heatmap-day-summary'), 'a day selected in July should not carry over and be misread against August');
 });

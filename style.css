@@ -470,7 +470,26 @@ main { padding: 16px; }
 
 .heatmap-cell.empty { background: none; cursor: default; }
 
-/* Spending Log — reverse-chronological feed inside a bottom sheet */
+/* inset so the ring doesn't shift cell size/layout */
+.heatmap-cell.selected { box-shadow: inset 0 0 0 2px #0a84ff; }
+
+/* Inline day-detail panel — expands below the grid when a cell is tapped,
+   reuses .log-entry styling so it reads as the same component as View Log */
+.heatmap-day-summary {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #f2f2f7;
+}
+
+.heatmap-day-summary-header {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1c1c1e;
+  margin-bottom: 4px;
+}
+
+/* Spending Log — reverse-chronological feed inside a bottom sheet, and
+   inside the heatmap's inline day-summary panel */
 .log-entry {
   display: flex;
   align-items: center;
@@ -845,6 +864,8 @@ main { padding: 16px; }
     border-bottom-color: rgba(255,255,255,0.08);
   }
 
+  .heatmap-day-summary { border-top-color: rgba(255,255,255,0.08); }
+
   .heatmap-cell { background: #2c2c2e; }
   .heatmap-filter,
   .heatmap-log-btn {
@@ -871,6 +892,7 @@ main { padding: 16px; }
   .sheet-form-btn,
   .modal-title,
   .heatmap-daynum,
+  .heatmap-day-summary-header,
   .log-entry-expense,
   .log-entry-amount {
     color: #f2f2f7;

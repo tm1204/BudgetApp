@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.9.1';
+const APP_VERSION = '5.9.2';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -66,6 +66,13 @@ let currentMonth = new Date().getMonth();
 // never silently filters a different month's view down to a category that
 // looks empty for no obvious reason.
 let heatmapCategoryFilter = 'all';
+
+// Day currently expanded in the heatmap's inline summary panel (1-31, or
+// null when nothing is selected). Survives a category filter change on
+// purpose — switching categories while a day is open is a reasonable way to
+// compare that day across categories, not a context change that should
+// close the panel. Reset on month/year switch, same as the filter above.
+let selectedHeatmapDay = null;
 
 // Restore last viewed month/year if the app was previously opened —
 // keeps the user on whatever month they were looking at when they last
@@ -1488,10 +1495,11 @@ function renderHeatmap(data) {
     const intensity = amount > 0 && maxSpend > 0 ? Math.max(0.18, amount / maxSpend) : 0;
     const style = intensity > 0 ? ` style="background:${hexToRgba(filterColour, intensity)}"` : '';
     const title = escapeHtml(`${MONTHS[currentMonth]} ${day} — ${amount > 0 ? fmt(amount) : 'no spend logged'}`);
+    const selectedCls = selectedHeatmapDay === day ? ' selected' : '';
     // title gives desktop/browser hover a tooltip, but this is a phone-only
-    // PWA with no hover — tapping shows the same text as a toast, which is
-    // how the app already surfaces this kind of brief info everywhere else
-    cells += `<div class="heatmap-cell"${style} title="${title}" onclick="showDaySpend(${day},${amount})"><span class="heatmap-daynum">${day}</span></div>`;
+    // PWA with no hover — tapping expands the inline summary panel below
+    // the grid instead, which is the primary way to read a cell
+    cells += `<div class="heatmap-cell${selectedCls}"${style} title="${title}" onclick="selectHeatmapDay(${day})"><span class="heatmap-daynum">${day}</span></div>`;
   }
 
   return `
@@ -1506,13 +1514,65 @@ function renderHeatmap(data) {
         ${weekdayLabels}
         ${cells}
       </div>
+      ${renderHeatmapDaySummary(events)}
     </div>`;
 }
 
-// Tapping a heatmap cell — the touch equivalent of the cell's hover title,
-// since a phone has no hover state to reveal it otherwise
-function showDaySpend(day, amount) {
-  showToast(`${MONTHS[currentMonth]} ${day} — ${amount > 0 ? fmt(amount) : 'no spend logged'}`);
+// Tapping a cell expands/collapses an inline panel showing that day's total
+// plus every individual spend that made it up — tapping the already-selected
+// day again collapses it, so no separate close control is needed.
+function selectHeatmapDay(day) {
+  selectedHeatmapDay = selectedHeatmapDay === day ? null : day;
+  const el = document.getElementById('heatmapContainer');
+  if (el) el.innerHTML = renderHeatmap(loadData(currentYear, currentMonth));
+}
+
+// events is whatever renderHeatmap() already filtered by category — the
+// summary panel stays in sync with the same filter the grid itself shows.
+function renderHeatmapDaySummary(events) {
+  if (selectedHeatmapDay === null) return '';
+
+  const dayEvents = events.filter(e => {
+    const d = new Date(e.timestamp);
+    return !isNaN(d.getTime()) && d.getFullYear() === currentYear && d.getMonth() === currentMonth && d.getDate() === selectedHeatmapDay;
+  });
+
+  const dateLabel = escapeHtml(`${MONTHS[currentMonth]} ${selectedHeatmapDay}`);
+
+  if (dayEvents.length === 0) {
+    return `
+      <div class="heatmap-day-summary">
+        <div class="heatmap-day-summary-header">${dateLabel}</div>
+        <div class="help-text">No spending logged this day.</div>
+      </div>`;
+  }
+
+  const total = dayEvents.reduce((sum, e) => sum + e.amount, 0);
+  const rows = dayEvents
+    .slice()
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    .map(e => {
+      const d = new Date(e.timestamp);
+      const timeLabel = isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+      const negative = e.amount < 0;
+      return `
+        <div class="log-entry">
+          <div class="log-entry-main">
+            <span class="log-entry-expense">${escapeHtml(e.expense)}</span>
+            <span class="log-entry-category">${escapeHtml(e.category)}</span>
+          </div>
+          <div class="log-entry-side">
+            <span class="log-entry-amount ${negative ? 'negative' : ''}">${negative ? '-' : ''}${fmt(e.amount)}</span>
+            <span class="log-entry-date">${escapeHtml(timeLabel)}</span>
+          </div>
+        </div>`;
+    }).join('');
+
+  return `
+    <div class="heatmap-day-summary">
+      <div class="heatmap-day-summary-header">${dateLabel} — ${total < 0 ? '-' : ''}${fmt(total)}</div>
+      ${rows}
+    </div>`;
 }
 
 function setHeatmapFilter(value) {
@@ -1662,6 +1722,7 @@ function renderYearSelect() {
     currentYear = parseInt(sel.value);
     saveLastViewedMonth(currentYear, currentMonth); // remember new year selection too
     heatmapCategoryFilter = 'all';
+    selectedHeatmapDay = null;
     renderMonthTabs();
     renderBudget();
   };
@@ -1700,6 +1761,7 @@ function switchMonth(m) {
   currentMonth = m;
   saveLastViewedMonth(currentYear, currentMonth); // remember this as the last viewed month
   heatmapCategoryFilter = 'all';
+  selectedHeatmapDay = null;
   renderMonthTabs();
   renderBudget();
 }
