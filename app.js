@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.11';
+const APP_VERSION = '5.11.1';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -133,16 +133,26 @@ function promptForReload(newVersion, waitingWorker) {
   }
 }
 
-// Reloading immediately after confirm() used to race the service worker:
-// sw.js called skipWaiting()/clients.claim() on its own schedule, so the new
-// worker could take control of the still-open page — serving a mix of old
-// in-memory JS and new cached assets — before the user had even clicked
-// "Refresh". This instead tells the (already-installed) worker to activate
-// only now, and waits for it to actually take control before reloading, so
-// the reload always lands on a fully-consistent new version.
+// Reloading immediately after confirm() used to race the service worker in
+// two different ways. First: sw.js calls skipWaiting()/clients.claim() on
+// its own schedule, so the new worker could take control of the still-open
+// page — serving a mix of old in-memory JS and new cached assets — before
+// the user had even clicked "Refresh"; postMessage('SKIP_WAITING') plus
+// waiting for controllerchange (in activateAndReload below) fixes that half.
+// Second, and the one that actually caused "click OK and the prompt just
+// keeps coming back" in practice: the version.json check that leads here
+// (checkForAppUpdate) is a single small fetch that routinely resolves
+// before the service worker's own update-and-install cycle — which has to
+// download and cache every asset in sw.js's ASSETS list — has produced a
+// waiting worker at all. Reloading as soon as this found no waiting worker
+// (the old behaviour) landed on the exact same old cached assets, since
+// nothing had actually activated — which then immediately re-detected the
+// same mismatch and prompted again, forever. Fixed by waiting for the
+// install to actually finish (or, if the service worker's own update()
+// check hadn't even started yet, for one to start) before reloading, rather
+// than treating "no waiting worker yet" as "nothing to activate".
 function reloadWithLatestServiceWorker(waitingWorker) {
-  const proceed = (worker) => {
-    if (!worker) { window.location.reload(); return; }
+  const activateAndReload = (worker) => {
     let reloaded = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (reloaded) return;
@@ -154,10 +164,49 @@ function reloadWithLatestServiceWorker(waitingWorker) {
     setTimeout(() => { if (!reloaded) { reloaded = true; window.location.reload(); } }, 2000);
   };
 
-  if (waitingWorker) { proceed(waitingWorker); return; }
-  navigator.serviceWorker.getRegistration()
-    .then(reg => proceed(reg && reg.waiting))
-    .catch(() => window.location.reload());
+  const waitForInstall = (installingWorker) => {
+    let settled = false;
+    const onChange = () => {
+      if (installingWorker.state === 'installing') return; // still in progress
+      finish();
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      installingWorker.removeEventListener('statechange', onChange);
+      if (installingWorker.state === 'installed') {
+        activateAndReload(installingWorker);
+      } else {
+        // 'redundant' (install failed) or the 10s safety net below firing
+        // while it's still stuck installing — nothing usable to activate,
+        // fall back to a plain reload rather than leaving the confirm
+        // dialog's "yes" with no visible effect at all
+        window.location.reload();
+      }
+    };
+    installingWorker.addEventListener('statechange', onChange);
+    setTimeout(finish, 10000);
+  };
+
+  if (waitingWorker) { activateAndReload(waitingWorker); return; }
+
+  navigator.serviceWorker.getRegistration().then(reg => {
+    if (!reg) { window.location.reload(); return; }
+    if (reg.waiting) { activateAndReload(reg.waiting); return; }
+    if (reg.installing) { waitForInstall(reg.installing); return; }
+
+    // Neither installing nor waiting yet — the service worker's own
+    // update() check (kicked off alongside the version.json check that led
+    // here, but not sequenced with it) may simply not have progressed far
+    // enough yet. Give it a brief chance to start before giving up.
+    let started = false;
+    reg.addEventListener('updatefound', () => {
+      started = true;
+      if (reg.installing) waitForInstall(reg.installing);
+    });
+    reg.update();
+    setTimeout(() => { if (!started) window.location.reload(); }, 3000);
+  }).catch(() => window.location.reload());
 }
 
 // ── Service Worker ──────────────────────────────────────────────────────────

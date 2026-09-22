@@ -681,6 +681,49 @@ test('confirming a reload waits for the service worker to actually activate befo
   assert.equal(reloads.length, 1, 'expected exactly one reload once control actually changed');
 });
 
+// Regression test for the bug this fixed: the version.json check that leads
+// to this prompt is a single small fetch that routinely resolves before the
+// service worker's own update-and-install cycle has produced a *waiting*
+// worker — it's often still only *installing* (registrationOverride here has
+// no `waiting` property at all, matching that real-world timing). Reloading
+// as soon as no waiting worker was found (the old behaviour) landed back on
+// the same stale cached assets, which re-triggered this exact same prompt —
+// "click OK and it just keeps coming back".
+test('confirming a reload waits for an in-progress install to finish, then activates and reloads', async () => {
+  let stateChangeCb = null;
+  const fakeInstallingWorker = {
+    state: 'installing',
+    postedMessages: [],
+    postMessage(msg) { this.postedMessages.push(msg); },
+    addEventListener(event, cb) { if (event === 'statechange') stateChangeCb = cb; },
+    removeEventListener() {}
+  };
+  const storage = createStorage({});
+  const { reloads, swListeners } = loadApp({
+    storage,
+    confirmReturns: true,
+    fetchVersionPayload: { version: '9.9.9' },
+    registrationOverride: { installing: fakeInstallingWorker }
+  });
+  await flushMicrotasks();
+
+  assert.deepEqual(fakeInstallingWorker.postedMessages, [], 'must not activate a worker that has not finished installing yet');
+  assert.equal(reloads.length, 0, 'must not reload while still only installing');
+
+  // Simulate the install finishing
+  fakeInstallingWorker.state = 'installed';
+  assert.ok(stateChangeCb, 'expected a statechange listener on the installing worker');
+  stateChangeCb();
+
+  assert.deepEqual(fakeInstallingWorker.postedMessages, ['SKIP_WAITING'], 'expected the now-installed worker to be told to activate');
+  assert.equal(reloads.length, 0, 'must not reload before the new worker has actually taken control');
+
+  assert.ok(swListeners.controllerchange && swListeners.controllerchange.length > 0, 'expected a controllerchange listener to have been registered');
+  swListeners.controllerchange.forEach(cb => cb());
+
+  assert.equal(reloads.length, 1, 'expected exactly one reload once control actually changed');
+});
+
 test('editing a row value patches computed numbers without rebuilding the whole page', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
