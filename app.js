@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.10.3';
+const APP_VERSION = '5.11';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -972,10 +972,10 @@ function openUserManual() {
     <div class="help-text">Every month has its own budget. Switch between months using the tabs, and between years using the year selector. Changes save automatically as soon as you leave a field — there is no separate save step.</div>
 
     <div class="help-heading">Categories</div>
-    <div class="help-text">Your budget is grouped into categories, like Home, Food or Fuel. Income sits fixed at the top and tracks money coming in rather than money going out. Tap a category's ⋮ button to rename it, change its colour, or delete it. To reorder categories, press and hold anywhere on a category's blank space (not its ⋮ button) and drag it to a new position. Income can only have its colour changed, since it always stays first and can't be moved, renamed or deleted.</div>
+    <div class="help-text">Your budget is grouped into categories, like Home, Food or Fuel. Income sits fixed at the top and tracks money coming in rather than money going out. Tap a category's ⋮ button to rename it, change its colour, or delete it, or press and hold that same button to drag the category to a new position. Income can only have its colour changed, since it always stays first and can't be moved, renamed or deleted.</div>
 
     <div class="help-heading">Rows</div>
-    <div class="help-text">Each category holds rows for individual expenses (or, in Income, sources of income). Use "+ Add row" to add one, and a row's ⋮ button to remove it or switch how it's tracked. To reorder rows within a category, press and hold blank space on the row (e.g. the Remaining column) and drag it up or down.</div>
+    <div class="help-text">Each category holds rows for individual expenses (or, in Income, sources of income). Use "+ Add row" to add one, and a row's ⋮ button to remove it or switch how it's tracked — press and hold that same button to drag the row to a new position within its category.</div>
 
     <div class="help-heading">Fully Paid vs Running Total rows</div>
     <div class="help-text">By default a row is "Fully Paid" — tick its checkbox once it's been paid. Switch a row to "Running Total" when a budgeted expense gets paid off in parts rather than all at once — instead of a checkbox you get a running balance, which you can edit directly or top up using the row's "Add to Total" option as each part payment goes through.</div>
@@ -1003,7 +1003,7 @@ function openUserManual() {
 function openFAQ() {
   const faqs = [
     ["Why can't I rename, reorder or delete the Income category?", "Income always stays first so the app can reliably tell it apart from expense categories. You can still change its colour."],
-    ["How do I reorder categories or rows?", "Press and hold on blank space on the category or row (not on a text field, checkbox, or its ⋮ button) until it lifts, then drag it to a new position and release."],
+    ["How do I reorder categories or rows?", "Press and hold its ⋮ button (the same one that opens its menu) until it lifts, then drag it to a new position and release. A quick tap still opens the menu as usual."],
     ["What happens if my device storage is full?", "The app tells you via a message instead of silently losing your change, and an Undo record may not be kept for it. Export a backup and free up some space."],
     ["What's the difference between Fully Paid and Running Total rows?", "Fully Paid is a simple paid/not-paid checkbox for a one-off cost. Running Total is for an expense you're paying off in parts rather than all at once — it tracks a running balance instead of a single paid/unpaid state."],
     ["Does Set as Template change past months?", "No — it only copies forward from the month you're viewing to later months, and never touches months you've locked with Protect Month."],
@@ -1265,31 +1265,33 @@ function reorderRows(catIdx, fromIdx, toIdx) {
 }
 
 // ── Drag to Reorder ───────────────────────────────────────────────────────────
-// Long-press (500ms, cancelled by >10px of movement) on blank space of a
-// category card or row — never on a text field, checkbox, or ⋮ button —
-// picks the item up for a free-form drag, replacing the old Move Up/Down
-// buttons. Pointer Events only (no legacy touch events, no HTML5
-// draggable, which barely works on touch).
+// Long-press (500ms, cancelled by >10px of movement) specifically on a
+// category or row's ⋮ button — a short tap still opens its usual menu
+// (Rename/Colour/Delete, or Add to Total/Switch Mode/Remove) — picks the
+// whole card/row up for a free-form drag, replacing the old Move Up/Down
+// buttons. Pointer Events only (no legacy touch events, no HTML5 draggable,
+// which barely works on touch).
 //
-// pointerdown is delegated on `document` itself (the closest('.budget-row')/
-// closest('.section-header') checks below scope it to budget content without
-// needing a direct reference to that element — the fake DOM the test harness
-// loads this file into only stubs methods on `document` itself, not on
-// whatever getElementById() returns, so this also keeps the file loadable
-// there), matching the existing document-level keydown listener below.
-// pointermove/pointerup/pointercancel are only attached (to `document`, not
-// the dragged element) for the duration of an active drag, since which
-// element is being dragged isn't known until the long-press actually fires.
+// This used to trigger from a long-press anywhere on blank row/category
+// space, which needed `touch-action: none` on the entire row/header to stop
+// iOS Safari's native scroll from winning once a drag armed — but that also
+// disabled the row's own native swipe-to-scroll, and reimplementing it in
+// JS never fully matched native scroll's feel (see README's v5.10.1–5.10.3
+// history). Scoping the long-press to the small, dedicated ⋮ button instead
+// means `touch-action: none` only has to apply there — nobody scrolls by
+// swiping from that exact icon, so the rest of the row/header keeps its
+// native scrolling untouched, and the manual-scroll fallback code is gone
+// entirely, along with the class of bugs that came with it.
 //
-// .budget-row/.section-header carry `touch-action: none` in CSS (declared
-// there, not set here) so that iOS Safari never starts its own native scroll
-// for a touch landing on them in the first place — see the comment on that
-// rule for why toggling touch-action from JS after the fact doesn't work.
-// That means a plain swipe starting on a row/header no longer scrolls on its
-// own; the pending-press handling below detects that case (movement past the
-// cancel threshold before the long-press timer fires) and forwards it to
-// `window.scrollBy()` manually for the rest of that touch, in place of the
-// native scroll it pre-empted.
+// pointerdown is delegated on `document` itself (the closest() checks below
+// scope it to the ⋮ buttons without needing a direct element reference —
+// the fake DOM the test harness loads this file into only stubs methods on
+// `document` itself, not on whatever getElementById() returns, so this also
+// keeps the file loadable there), matching the existing document-level
+// keydown listener below. pointermove/pointerup/pointercancel are only
+// attached (to `document`, not the button) for the duration of the pending
+// press or an active drag, since which element is being dragged isn't known
+// until the long-press actually fires.
 const DRAG_HOLD_MS = 500;
 const DRAG_CANCEL_PX = 10;
 const DRAG_EDGE_ZONE = 60;
@@ -1299,13 +1301,12 @@ let dragState = null; // the active drag, or null
 let suppressNextClick = false;
 
 document.addEventListener('pointerdown', (event) => {
-  // Never intercept an actual control — let text fields, the checkbox, and
-  // the ⋮ buttons behave exactly as before
-  if (event.target.closest('input, button, select, textarea, label')) return;
+  const handleBtn = event.target.closest('.ellipsis-btn, .row-ellipsis-btn');
+  if (!handleBtn) return; // only the ⋮ button can start a drag
 
-  const rowEl = event.target.closest('.budget-row');
-  const sectionEl = rowEl ? null : event.target.closest('.section-header');
-  if (!rowEl && !sectionEl) return;
+  const rowEl = handleBtn.closest('.budget-row');
+  const sectionEl = rowEl ? null : handleBtn.closest('.section-header');
+  if (!rowEl && !sectionEl) return; // defensive — the button always lives in one of these
 
   let type, catIdx, rowIdx, originEl;
   if (rowEl) {
@@ -1322,65 +1323,32 @@ document.addEventListener('pointerdown', (event) => {
   }
 
   const pointerId = event.pointerId;
-  // Captured immediately, before any movement — not just once armed. With
-  // touch-action: none in effect (see the CSS), nothing else is claiming this
-  // touch, but while content is being scrolled manually underneath a mostly-
-  // stationary finger, an uncaptured pointer can otherwise have its target
-  // reassigned to whatever now sits under it, which is exactly the kind of
-  // thing that reads as "wonky" scrolling; capturing pins event delivery to
-  // this element regardless of what scrolls past beneath the touch point.
-  try { originEl.setPointerCapture(pointerId); } catch {}
   const startX = event.clientX;
-  let lastY = event.clientY;
-  let latestY = event.clientY;
-  let scrolling = false;  // this touch turned out to be a swipe, not a hold
-  let armed = false;      // the long-press fired — armDrag() owns cleanup from here
-  let scrollRafPending = false;
-
-  // Applies at most once per frame rather than once per pointermove — touch
-  // devices can deliver pointermove in bursts out of sync with paint, and
-  // calling scrollBy() straight from the raw event stream (as an earlier
-  // version of this did) produced visibly jerky, uneven scrolling. Batching
-  // to the frame clock is the same fix already used for auto-scroll during
-  // an active drag, in dragTick() below.
-  const applyPendingScroll = () => {
-    scrollRafPending = false;
-    if (!scrolling) return;
-    window.scrollBy(0, lastY - latestY);
-    lastY = latestY;
-  };
+  const startY = event.clientY;
+  let armed = false; // the long-press fired — armDrag() owns cleanup from here
 
   const onMove = (moveEvent) => {
     if (moveEvent.pointerId !== pointerId || armed) return;
-    latestY = moveEvent.clientY;
-    if (!scrolling) {
-      if (Math.hypot(moveEvent.clientX - startX, latestY - lastY) <= DRAG_CANCEL_PX) return;
-      clearTimeout(timer);
-      scrolling = true;
-    }
-    if (!scrollRafPending) {
-      scrollRafPending = true;
-      requestAnimationFrame(applyPendingScroll);
-    }
+    if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > DRAG_CANCEL_PX) cancelPending();
   };
 
   const onUp = (upEvent) => {
     if (upEvent.pointerId !== pointerId || armed) return;
-    clearTimeout(timer);
-    try { originEl.releasePointerCapture(pointerId); } catch {}
-    cleanup();
+    cancelPending();
   };
 
-  function cleanup() {
+  function cancelPending() {
+    clearTimeout(timer);
     document.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerup', onUp);
     document.removeEventListener('pointercancel', onUp);
   }
 
   const timer = setTimeout(() => {
-    if (scrolling) return; // already turned into a scroll — too late to arm
     armed = true;
-    cleanup();
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
     armDrag(event, originEl, type, catIdx, rowIdx);
   }, DRAG_HOLD_MS);
 
@@ -1398,8 +1366,11 @@ function armDrag(event, originEl, type, catIdx, rowIdx) {
     document.activeElement.blur();
   }
 
-  // touch-action: none is already declared in CSS on .section-header/
-  // .budget-row (see that rule's comment) — nothing to toggle here
+  // touch-action: none is already declared in CSS on the ⋮ button this touch
+  // started on (see that rule's comment) — that decision holds for this
+  // pointer's whole lifetime regardless of which element later captures it,
+  // so nothing needs to be toggled here even though originEl (the row/card
+  // being dragged) isn't itself one of the touch-action: none elements
   try { originEl.setPointerCapture(event.pointerId); } catch {}
   try { navigator.vibrate?.(10); } catch {}
 
@@ -1557,22 +1528,32 @@ function endDrag(event) {
   floatingEl.remove();
   originEl.classList.remove('drag-source-hidden');
 
-  // A long-press that picked the item up still ends in a pointerup on the
-  // same spot it started — guard against that being read as a stray click on
-  // whatever's now under the finger (most importantly, the ⋮ button)
+  // A long-press that picked the item up still ends in a pointerup on the ⋮
+  // button it started from, which the browser can follow with a synthetic
+  // click on that same (still-attached) button — guard against that
+  // reopening the menu right after a drag
   suppressNextClick = true;
   setTimeout(() => { suppressNextClick = false; }, 300);
 
   dragState = null;
   if (cancelled) return; // e.g. an incoming call interrupted the gesture — snap back, no save
 
-  if (type === 'row') {
-    const finalIdx = Array.from(containerEl.children).filter(el => el.classList.contains('budget-row')).indexOf(originEl);
-    reorderRows(catIdx, startIndex, finalIdx);
-  } else {
-    const finalIdx = Array.from(containerEl.children).filter(el => el.classList.contains('section')).indexOf(originEl);
-    reorderCategories(startIndex, finalIdx);
-  }
+  const finalIdx = type === 'row'
+    ? Array.from(containerEl.children).filter(el => el.classList.contains('budget-row')).indexOf(originEl)
+    : Array.from(containerEl.children).filter(el => el.classList.contains('section')).indexOf(originEl);
+
+  // Deferred one tick so a synthetic click the browser fires after this
+  // pointerup gets caught by the suppression above while the ⋮ button is
+  // still attached to the document — reorderRows()/reorderCategories() call
+  // renderBudget(), which synchronously replaces the whole #budgetContent
+  // tree, that button included
+  setTimeout(() => {
+    if (type === 'row') {
+      reorderRows(catIdx, startIndex, finalIdx);
+    } else {
+      reorderCategories(startIndex, finalIdx);
+    }
+  }, 0);
 }
 
 document.addEventListener('click', (event) => {

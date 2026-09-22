@@ -181,28 +181,23 @@ main { padding: 16px; }
   padding-bottom: 5px;
 }
 
-/* Long-press-to-drag lands on blank space of the header/row — suppress the
-   native text-selection callout that iOS/Android would otherwise show on a
-   long press, but restore normal selection inside the actual text inputs so
-   editing expense/cost fields still works as expected. touch-action: none
-   has to be set here declaratively rather than toggled in JS once a drag is
-   armed — iOS Safari (and most mobile browsers) decide whether a touch
-   starting on an element will be a native scroll at the moment the touch
-   begins, using whatever touch-action was already in the stylesheet; a
-   style change made mid-gesture, after the browser has already committed to
-   scrolling, has no effect. The vertical-swipe-to-scroll this disables is
-   restored manually in JS instead — see the pointerdown handler below. */
-.section-header,
-.budget-row {
+/* Long-press-to-drag triggers only from the ⋮ button (a short tap still
+   opens its usual menu) — suppress the native text-selection callout
+   iOS/Android would otherwise show on a long press there. touch-action:
+   none has to be set here declaratively rather than toggled in JS once a
+   drag is armed — iOS Safari (and most mobile browsers) decide whether a
+   touch will be a native scroll at the moment it begins, using whatever
+   touch-action was already in the stylesheet; a change made mid-gesture,
+   after the browser has already committed to scrolling, has no effect.
+   Scoping this to the small ⋮ button rather than the whole row/header
+   (an earlier approach — see README's v5.10–v5.10.3 history) means the
+   rest of the row/header keeps its native swipe-to-scroll untouched. */
+.ellipsis-btn,
+.row-ellipsis-btn {
   touch-action: none;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
-}
-
-.budget-row input {
-  -webkit-user-select: text;
-  user-select: text;
 }
 
 /* The card/row actually being dragged stays in the layout (so the list
