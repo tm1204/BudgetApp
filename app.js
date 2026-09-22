@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.10.2';
+const APP_VERSION = '5.10.3';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -1322,6 +1322,14 @@ document.addEventListener('pointerdown', (event) => {
   }
 
   const pointerId = event.pointerId;
+  // Captured immediately, before any movement — not just once armed. With
+  // touch-action: none in effect (see the CSS), nothing else is claiming this
+  // touch, but while content is being scrolled manually underneath a mostly-
+  // stationary finger, an uncaptured pointer can otherwise have its target
+  // reassigned to whatever now sits under it, which is exactly the kind of
+  // thing that reads as "wonky" scrolling; capturing pins event delivery to
+  // this element regardless of what scrolls past beneath the touch point.
+  try { originEl.setPointerCapture(pointerId); } catch {}
   const startX = event.clientX;
   let lastY = event.clientY;
   let latestY = event.clientY;
@@ -1359,6 +1367,7 @@ document.addEventListener('pointerdown', (event) => {
   const onUp = (upEvent) => {
     if (upEvent.pointerId !== pointerId || armed) return;
     clearTimeout(timer);
+    try { originEl.releasePointerCapture(pointerId); } catch {}
     cleanup();
   };
 
