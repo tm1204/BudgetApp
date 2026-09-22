@@ -184,9 +184,17 @@ main { padding: 16px; }
 /* Long-press-to-drag lands on blank space of the header/row — suppress the
    native text-selection callout that iOS/Android would otherwise show on a
    long press, but restore normal selection inside the actual text inputs so
-   editing expense/cost fields still works as expected */
+   editing expense/cost fields still works as expected. touch-action: none
+   has to be set here declaratively rather than toggled in JS once a drag is
+   armed — iOS Safari (and most mobile browsers) decide whether a touch
+   starting on an element will be a native scroll at the moment the touch
+   begins, using whatever touch-action was already in the stylesheet; a
+   style change made mid-gesture, after the browser has already committed to
+   scrolling, has no effect. The vertical-swipe-to-scroll this disables is
+   restored manually in JS instead — see the pointerdown handler below. */
 .section-header,
 .budget-row {
+  touch-action: none;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;

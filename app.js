@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.10';
+const APP_VERSION = '5.10.1';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -1280,13 +1280,22 @@ function reorderRows(catIdx, fromIdx, toIdx) {
 // pointermove/pointerup/pointercancel are only attached (to `document`, not
 // the dragged element) for the duration of an active drag, since which
 // element is being dragged isn't known until the long-press actually fires.
+//
+// .budget-row/.section-header carry `touch-action: none` in CSS (declared
+// there, not set here) so that iOS Safari never starts its own native scroll
+// for a touch landing on them in the first place — see the comment on that
+// rule for why toggling touch-action from JS after the fact doesn't work.
+// That means a plain swipe starting on a row/header no longer scrolls on its
+// own; the pending-press handling below detects that case (movement past the
+// cancel threshold before the long-press timer fires) and forwards it to
+// `window.scrollBy()` manually for the rest of that touch, in place of the
+// native scroll it pre-empted.
 const DRAG_HOLD_MS = 500;
 const DRAG_CANCEL_PX = 10;
 const DRAG_EDGE_ZONE = 60;
 const DRAG_MAX_SCROLL_SPEED = 12;
 
-let pendingPress = null; // { timer } for a long-press not yet armed, or null
-let dragState = null;    // the active drag, or null
+let dragState = null; // the active drag, or null
 let suppressNextClick = false;
 
 document.addEventListener('pointerdown', (event) => {
@@ -1312,36 +1321,45 @@ document.addEventListener('pointerdown', (event) => {
     originEl = sectionEl.closest('.section');
   }
 
+  const pointerId = event.pointerId;
   const startX = event.clientX;
-  const startY = event.clientY;
+  let lastY = event.clientY;
+  let scrolling = false; // this touch turned out to be a swipe, not a hold
+  let armed = false;     // the long-press fired — armDrag() owns cleanup from here
 
-  const watchForCancel = (moveEvent) => {
-    if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > DRAG_CANCEL_PX) {
-      cancelPendingPress();
+  const onMove = (moveEvent) => {
+    if (moveEvent.pointerId !== pointerId || armed) return;
+    if (!scrolling) {
+      if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - lastY) <= DRAG_CANCEL_PX) return;
+      clearTimeout(timer);
+      scrolling = true;
     }
+    window.scrollBy(0, lastY - moveEvent.clientY);
+    lastY = moveEvent.clientY;
   };
 
-  function cancelPendingPress() {
-    if (!pendingPress) return;
-    clearTimeout(pendingPress.timer);
-    document.removeEventListener('pointermove', watchForCancel);
-    document.removeEventListener('pointerup', cancelPendingPress);
-    document.removeEventListener('pointercancel', cancelPendingPress);
-    pendingPress = null;
+  const onUp = (upEvent) => {
+    if (upEvent.pointerId !== pointerId || armed) return;
+    clearTimeout(timer);
+    cleanup();
+  };
+
+  function cleanup() {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
   }
 
   const timer = setTimeout(() => {
-    document.removeEventListener('pointermove', watchForCancel);
-    document.removeEventListener('pointerup', cancelPendingPress);
-    document.removeEventListener('pointercancel', cancelPendingPress);
-    pendingPress = null;
+    if (scrolling) return; // already turned into a scroll — too late to arm
+    armed = true;
+    cleanup();
     armDrag(event, originEl, type, catIdx, rowIdx);
   }, DRAG_HOLD_MS);
 
-  pendingPress = { timer };
-  document.addEventListener('pointermove', watchForCancel);
-  document.addEventListener('pointerup', cancelPendingPress);
-  document.addEventListener('pointercancel', cancelPendingPress);
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onUp);
 });
 
 function armDrag(event, originEl, type, catIdx, rowIdx) {
@@ -1353,8 +1371,9 @@ function armDrag(event, originEl, type, catIdx, rowIdx) {
     document.activeElement.blur();
   }
 
+  // touch-action: none is already declared in CSS on .section-header/
+  // .budget-row (see that rule's comment) — nothing to toggle here
   try { originEl.setPointerCapture(event.pointerId); } catch {}
-  document.body.style.touchAction = 'none';
   try { navigator.vibrate?.(10); } catch {}
 
   const originRect = originEl.getBoundingClientRect();
@@ -1507,7 +1526,6 @@ function endDrag(event) {
   document.removeEventListener('pointermove', onDragPointerMove);
   document.removeEventListener('pointerup', endDrag);
   document.removeEventListener('pointercancel', endDrag);
-  document.body.style.touchAction = '';
   try { originEl.releasePointerCapture(dragState.pointerId); } catch {}
   floatingEl.remove();
   originEl.classList.remove('drag-source-hidden');
