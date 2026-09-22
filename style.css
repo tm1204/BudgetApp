@@ -7,6 +7,10 @@ body {
   color: #1c1c1e;
 }
 
+/* Stops iOS rubber-banding at the page edges from fighting the auto-scroll
+   that runs while a category/row is being dragged near the top or bottom */
+html, body { overscroll-behavior: contain; }
+
 /* Sticky header wrapper — header + month tabs stay fixed while scrolling */
 .sticky-wrap {
   position: sticky;
@@ -175,6 +179,40 @@ main { padding: 16px; }
   border-bottom: 1px solid #f2f2f7;
   padding-top: 5px;
   padding-bottom: 5px;
+}
+
+/* Long-press-to-drag lands on blank space of the header/row — suppress the
+   native text-selection callout that iOS/Android would otherwise show on a
+   long press, but restore normal selection inside the actual text inputs so
+   editing expense/cost fields still works as expected */
+.section-header,
+.budget-row {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.budget-row input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* The card/row actually being dragged stays in the layout (so the list
+   doesn't collapse) but is invisible — the only thing the user sees move is
+   .drag-clone below, which tracks the finger */
+.drag-source-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.drag-clone {
+  position: fixed;
+  z-index: 300;
+  margin: 0;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  transform: scale(1.02);
+  opacity: 0.96;
+  transition: box-shadow 120ms ease, transform 120ms ease;
 }
 
 .cell-expense { min-width: 0; padding-right: 6px; }
@@ -865,6 +903,13 @@ main { padding: 16px; }
   }
 
   .heatmap-day-summary { border-top-color: rgba(255,255,255,0.08); }
+
+  /* Default box-shadow is too faint to read against the dark background this
+     mode already uses for .section (#1c1c1e) — a lighter border reads better
+     here than trying to darken the shadow further */
+  .drag-clone {
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.15), 0 8px 24px rgba(0,0,0,0.6);
+  }
 
   .heatmap-cell { background: #2c2c2e; }
   .heatmap-filter,

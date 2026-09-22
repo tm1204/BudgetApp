@@ -52,21 +52,21 @@ The app appears on the home screen and launches full-screen like a native app, s
 - **Add custom categories** — via the "+ Add Category" button at the bottom of the list
 - **Rename categories** — via the ⋮ menu on each category header (not shown for Income)
 - **Delete categories** — via the ⋮ menu with confirmation prompt (not shown for Income)
-- **Reorder categories** — Move Up / Move Down via the category menu; Income is permanently locked to the top position and no category can be moved above position 2
+- **Reorder categories** — press and hold on blank space of a category card (not its ⋮ button) until it lifts, then drag it to a new position and release; Income is permanently locked to the top position and can never be picked up or dropped onto
 - **Category colours** — each category has a selectable colour from a 16-colour palette, applied to the section header and pie chart; Income has its own fixed selectable colour separate from the expense palette
 - **Section totals** — each category header displays the sum of all its rows on the right
 - **Consistent category ellipsis** — category heading menu now uses the same vertical ellipsis style as row menus
-- **Irrelevant options are hidden, not greyed out** — Income's menu only ever shows Change Colour; Move Up/Down disappear entirely at either end of the category list, rather than staying visible in a disabled state that's hard to read in dark mode
-- **Category menu order** — Move Up, Move Down, Rename, Change Colour, Delete
+- **Irrelevant options are hidden, not greyed out** — Income's menu only ever shows Change Colour, rather than staying visible in a disabled state that's hard to read in dark mode
+- **Category menu order** — Rename, Change Colour, Delete
 
 ### 📋 Rows
 - **Add rows** — per category via the "+ Add row" button
 - **Row actions menu** — each row uses a **vertical ellipsis** menu instead of a direct remove button
-- **Row menu order** — Add to Total (Running Total rows only), Switch to Fully Paid/Running Total, Move Up, Move Down, Remove Row; Remove Row is always last
+- **Row menu order** — Add to Total (Running Total rows only), Switch to Fully Paid/Running Total, Remove Row; Remove Row is always last
 - **Add to Total** — available from the row menu on Running Total rows only; opens a centered numeric-entry dialog (a proper number field, so mobile shows a numeric keypad rather than the full keyboard) and adds the entered amount to the row's existing running total, instead of having to work out and retype the new figure by hand
 - **Switch Row to Running Total** — available from the row menu (not offered on Income rows — see Running Total Logic below)
 - **Switch Row to Fully Paid** — available from the row menu
-- **Move Row Up / Down** — available from the row menu for reordering rows within a category; hidden (not shown disabled) for the first/last row
+- **Reorder rows** — press and hold on blank space on a row (e.g. the Remaining column — not a text field, checkbox, or the row's ⋮ button) until it lifts, then drag it up or down within its category and release
 - **Remove Row** — available from the row menu
 - **Expense name** — free text input; labelled **Income source** instead, for rows in the Income category
 - **Column header wording** — the "Expense" column header reads **"Source"** and the "Cost" column header reads **"Amount"** for the Income category, since its rows are income rather than spending
@@ -277,7 +277,7 @@ Categories saved with one of the 10 pre-fix colours are migrated to their correc
 
 ## 🖼️ Menu Icon Style
 
-Export, Import, App Permissions, Help, User Manual, FAQ, Undo, Redo, Rename, Protected/Unprotected, and Set Month as Template use minimal, bold, black line-style inline SVG icons — a deliberately different visual language from the app's colourful rounded main icon, keeping the day-to-day interface clean and modern. Change Colour, Move Up, Move Down, Delete, and Add to Total remain as simple glyph/emoji controls where retained.
+Export, Import, App Permissions, Help, User Manual, FAQ, Undo, Redo, Rename, Protected/Unprotected, and Set Month as Template use minimal, bold, black line-style inline SVG icons — a deliberately different visual language from the app's colourful rounded main icon, keeping the day-to-day interface clean and modern. Change Colour, Delete, and Add to Total remain as simple glyph/emoji controls where retained.
 
 ---
 
@@ -378,6 +378,7 @@ Every change to this app — however small — follows the same process:
 | v5.9 | Added a spending heatmap and expense log, rendered below the pie chart — motivated by a real case where a purchase was made in a hurry and it wasn't clear whether it had already been logged, requiring repeated undo/redo just to check. Running Total rows now log every add/edit as a timestamped delta; Fully Paid rows track a single `paidAt` timestamp (set when ticked paid, cleared when unticked, re-stamped if cost is edited while already paid — a changed amount is a new spend, not a retroactive edit). The heatmap has a category filter (defaults to "All Categories") and a "View Log" button opening a reverse-chronological feed, both scoped to whichever category is selected. Spend history is cleared when a row switches mode or when a templated month resets it, same as `paid`/`runningTotal` already did |
 | v5.9.1 | Bug fix — v5.9's heatmap cells only revealed their date/amount via a `title` hover tooltip, which doesn't work on a phone (no hover state) — the app's only real platform. Tapping a cell now also shows the same text as a toast, the app's existing pattern for this kind of brief feedback |
 | v5.9.2 | Replaced v5.9.1's tap-to-toast with an inline day-summary panel below the heatmap grid — the toast felt generic next to the rest of the card-based UI and appeared disconnected from the cell that was tapped. The panel shows the day's total plus every individual spend that made it up (reusing View Log's row style), stays open while the category filter changes so a day can be compared across categories, and collapses on a second tap of the same day. Tapped cell gets a highlight ring |
+| v5.10 | Replaced Move Up/Down with long-press-and-drag reordering for both categories and rows — press and hold on blank space of a category card or row (not a text field, checkbox, or the ⋮ button) until it lifts, then drag it to a new position; auto-scrolls near the top/bottom of the screen, and siblings slide out of the way as you drag over them. Income still can never be picked up or dropped onto. Move Up/Down removed entirely from both the category and row ⋮ menus, shortening both |
 
 ---
 

@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.9.2';
+const APP_VERSION = '5.10';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -972,10 +972,10 @@ function openUserManual() {
     <div class="help-text">Every month has its own budget. Switch between months using the tabs, and between years using the year selector. Changes save automatically as soon as you leave a field — there is no separate save step.</div>
 
     <div class="help-heading">Categories</div>
-    <div class="help-text">Your budget is grouped into categories, like Home, Food or Fuel. Income sits fixed at the top and tracks money coming in rather than money going out. Tap a category's ⋮ button to rename it, change its colour, reorder it, or delete it. Income can only have its colour changed, since it always stays first and can't be moved, renamed or deleted.</div>
+    <div class="help-text">Your budget is grouped into categories, like Home, Food or Fuel. Income sits fixed at the top and tracks money coming in rather than money going out. Tap a category's ⋮ button to rename it, change its colour, or delete it. To reorder categories, press and hold anywhere on a category's blank space (not its ⋮ button) and drag it to a new position. Income can only have its colour changed, since it always stays first and can't be moved, renamed or deleted.</div>
 
     <div class="help-heading">Rows</div>
-    <div class="help-text">Each category holds rows for individual expenses (or, in Income, sources of income). Use "+ Add row" to add one, and a row's ⋮ button to remove or reorder it, or switch how it's tracked.</div>
+    <div class="help-text">Each category holds rows for individual expenses (or, in Income, sources of income). Use "+ Add row" to add one, and a row's ⋮ button to remove it or switch how it's tracked. To reorder rows within a category, press and hold blank space on the row (e.g. the Remaining column) and drag it up or down.</div>
 
     <div class="help-heading">Fully Paid vs Running Total rows</div>
     <div class="help-text">By default a row is "Fully Paid" — tick its checkbox once it's been paid. Switch a row to "Running Total" when a budgeted expense gets paid off in parts rather than all at once — instead of a checkbox you get a running balance, which you can edit directly or top up using the row's "Add to Total" option as each part payment goes through.</div>
@@ -1003,6 +1003,7 @@ function openUserManual() {
 function openFAQ() {
   const faqs = [
     ["Why can't I rename, reorder or delete the Income category?", "Income always stays first so the app can reliably tell it apart from expense categories. You can still change its colour."],
+    ["How do I reorder categories or rows?", "Press and hold on blank space on the category or row (not on a text field, checkbox, or its ⋮ button) until it lifts, then drag it to a new position and release."],
     ["What happens if my device storage is full?", "The app tells you via a message instead of silently losing your change, and an Undo record may not be kept for it. Export a backup and free up some space."],
     ["What's the difference between Fully Paid and Running Total rows?", "Fully Paid is a simple paid/not-paid checkbox for a one-off cost. Running Total is for an expense you're paying off in parts rather than all at once — it tracks a running balance instead of a single paid/unpaid state."],
     ["Does Set as Template change past months?", "No — it only copies forward from the month you're viewing to later months, and never touches months you've locked with Protect Month."],
@@ -1032,17 +1033,15 @@ function openFAQ() {
 
 // ── Category Management Menu ─────────────────────────────────────────────────
 function openCategoryMenu(catIdx) {
-  const data    = loadData(currentYear, currentMonth);
-  const cat     = data[catIdx];
-  const isInc   = cat.isIncome;
-  // Move Up is irrelevant for Income and for any category already at index 1
-  // (directly below Income) — prevents anything from landing on index 0
-  const hideUp   = isInc || catIdx <= 1;
-  const hideDown = isInc || catIdx === data.length - 1;
+  const data  = loadData(currentYear, currentMonth);
+  const cat   = data[catIdx];
+  const isInc = cat.isIncome;
 
   // Income can never be renamed, moved, or deleted — those options are
   // omitted entirely rather than shown disabled (a disabled/grey button is
-  // hard to read in dark mode, and hiding also keeps the menu shorter)
+  // hard to read in dark mode, and hiding also keeps the menu shorter).
+  // Reordering itself is done by long-pressing and dragging the category
+  // card, not from this menu — see the "Drag to Reorder" section below.
   const html = `
     <div class="sheet-header">
       <button class="sheet-back-btn" onclick="closeSheet()">
@@ -1051,16 +1050,6 @@ function openCategoryMenu(catIdx) {
       <div class="sheet-title-inline">${escapeHtml(cat.name)}</div>
       <div class="sheet-back-placeholder"></div>
     </div>
-
-    ${hideUp ? '' : `
-    <button class="sheet-option" onclick="sheetMove(${catIdx},-1)">
-      <span class="sheet-option-icon">▲</span> Move Up
-    </button>`}
-
-    ${hideDown ? '' : `
-    <button class="sheet-option" onclick="sheetMove(${catIdx},1)">
-      <span class="sheet-option-icon">▼</span> Move Down
-    </button>`}
 
     ${isInc ? '' : `
     <button class="sheet-option" onclick="sheetRename(${catIdx})">
@@ -1135,27 +1124,25 @@ function applyColour(catIdx, colour) {
   closeSheet();
 }
 
-function sheetMove(catIdx, direction) {
-  const data   = loadData(currentYear, currentMonth);
-  const newIdx = catIdx + direction;
+// Called from endDrag() once a category card has been dropped — toIdx is the
+// card's final resting index in the DOM (arbitrary distance, not just ±1).
+function reorderCategories(fromIdx, toIdx) {
+  if (fromIdx === toIdx) return;
+  const data = loadData(currentYear, currentMonth);
+  // Defensive — armDrag() already refuses to pick up Income or drop onto
+  // index 0, but these guards make the function safe to call directly too
+  if (data[fromIdx].isIncome || toIdx === 0) return;
 
-  // Bounds check
-  if (newIdx < 0 || newIdx >= data.length) { closeSheet(); return; }
-  // Income can never move
-  if (data[catIdx].isIncome) { closeSheet(); return; }
-  // Hard block — no category may ever occupy index 0 (Income's permanent slot)
-  if (newIdx === 0) { closeSheet(); return; }
-
-  const name = data[catIdx].name;
-  withUndo(`Moved "${name}" ${direction < 0 ? 'up' : 'down'}`, () => {
+  const name = data[fromIdx].name;
+  withUndo(`Moved "${name}" category`, () => {
     const d = loadData(currentYear, currentMonth);
-    [d[catIdx], d[newIdx]] = [d[newIdx], d[catIdx]];
-    // Final safety net — re-enforce isIncome strictly by index after any swap
+    const [moved] = d.splice(fromIdx, 1);
+    d.splice(toIdx, 0, moved);
+    // Final safety net — re-enforce isIncome strictly by index after any move
     d.forEach((cat, idx) => { cat.isIncome = idx === 0; });
     saveData(currentYear, currentMonth, d);
     renderBudget();
   });
-  closeSheet();
 }
 
 function sheetDelete(catIdx) {
@@ -1196,9 +1183,6 @@ function openRowMenu(catIdx, rowIdx) {
   const category = data[catIdx];
   const mode = row.mode ?? 'fully-paid';
 
-  const hideUp = rowIdx === 0;
-  const hideDown = rowIdx === data[catIdx].rows.length - 1;
-
   const switchLabel = mode === 'running-total'
     ? 'Switch Row to Fully Paid'
     : 'Switch Row to Running Total';
@@ -1220,16 +1204,6 @@ function openRowMenu(catIdx, rowIdx) {
     ${category.isIncome ? '' : `
     <button class="sheet-option" onclick="switchRowMode(${catIdx},${rowIdx})">
       <span class="sheet-option-icon">⇄</span> ${switchLabel}
-    </button>`}
-
-    ${hideUp ? '' : `
-    <button class="sheet-option" onclick="moveRow(${catIdx},${rowIdx},-1)">
-      <span class="sheet-option-icon">▲</span> Move Up
-    </button>`}
-
-    ${hideDown ? '' : `
-    <button class="sheet-option" onclick="moveRow(${catIdx},${rowIdx},1)">
-      <span class="sheet-option-icon">▼</span> Move Down
     </button>`}
 
     <button class="sheet-option" onclick="removeRow(${catIdx},${rowIdx})">
@@ -1275,24 +1249,293 @@ function switchRowMode(catIdx, rowIdx) {
   closeSheet();
 }
 
-function moveRow(catIdx, rowIdx, direction) {
+// Called from endDrag() once a row has been dropped — toIdx is the row's
+// final resting index within its category (arbitrary distance, not just ±1).
+function reorderRows(catIdx, fromIdx, toIdx) {
+  if (fromIdx === toIdx) return;
   const data = loadData(currentYear, currentMonth);
-  const newIdx = rowIdx + direction;
-  if (newIdx < 0 || newIdx >= data[catIdx].rows.length) {
-    closeSheet();
-    return;
-  }
-
-  const row = data[catIdx].rows[rowIdx];
-  const rowName = row.expense || '(unnamed)';
-  withUndo(`Moved row "${rowName}" ${direction < 0 ? 'up' : 'down'}`, () => {
+  const rowName = data[catIdx].rows[fromIdx].expense || '(unnamed)';
+  withUndo(`Moved row "${rowName}"`, () => {
     const d = loadData(currentYear, currentMonth);
-    [d[catIdx].rows[rowIdx], d[catIdx].rows[newIdx]] = [d[catIdx].rows[newIdx], d[catIdx].rows[rowIdx]];
+    const [moved] = d[catIdx].rows.splice(fromIdx, 1);
+    d[catIdx].rows.splice(toIdx, 0, moved);
     saveData(currentYear, currentMonth, d);
     renderBudget();
   });
-  closeSheet();
 }
+
+// ── Drag to Reorder ───────────────────────────────────────────────────────────
+// Long-press (500ms, cancelled by >10px of movement) on blank space of a
+// category card or row — never on a text field, checkbox, or ⋮ button —
+// picks the item up for a free-form drag, replacing the old Move Up/Down
+// buttons. Pointer Events only (no legacy touch events, no HTML5
+// draggable, which barely works on touch).
+//
+// pointerdown is delegated on `document` itself (the closest('.budget-row')/
+// closest('.section-header') checks below scope it to budget content without
+// needing a direct reference to that element — the fake DOM the test harness
+// loads this file into only stubs methods on `document` itself, not on
+// whatever getElementById() returns, so this also keeps the file loadable
+// there), matching the existing document-level keydown listener below.
+// pointermove/pointerup/pointercancel are only attached (to `document`, not
+// the dragged element) for the duration of an active drag, since which
+// element is being dragged isn't known until the long-press actually fires.
+const DRAG_HOLD_MS = 500;
+const DRAG_CANCEL_PX = 10;
+const DRAG_EDGE_ZONE = 60;
+const DRAG_MAX_SCROLL_SPEED = 12;
+
+let pendingPress = null; // { timer } for a long-press not yet armed, or null
+let dragState = null;    // the active drag, or null
+let suppressNextClick = false;
+
+document.addEventListener('pointerdown', (event) => {
+  // Never intercept an actual control — let text fields, the checkbox, and
+  // the ⋮ buttons behave exactly as before
+  if (event.target.closest('input, button, select, textarea, label')) return;
+
+  const rowEl = event.target.closest('.budget-row');
+  const sectionEl = rowEl ? null : event.target.closest('.section-header');
+  if (!rowEl && !sectionEl) return;
+
+  let type, catIdx, rowIdx, originEl;
+  if (rowEl) {
+    type = 'row';
+    catIdx = Number(rowEl.dataset.catIdx);
+    rowIdx = Number(rowEl.dataset.rowIdx);
+    originEl = rowEl;
+  } else {
+    catIdx = Number(sectionEl.closest('.section').dataset.catIdx);
+    if (catIdx === 0) return; // Income can never be picked up
+    type = 'category';
+    rowIdx = null;
+    originEl = sectionEl.closest('.section');
+  }
+
+  const startX = event.clientX;
+  const startY = event.clientY;
+
+  const watchForCancel = (moveEvent) => {
+    if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > DRAG_CANCEL_PX) {
+      cancelPendingPress();
+    }
+  };
+
+  function cancelPendingPress() {
+    if (!pendingPress) return;
+    clearTimeout(pendingPress.timer);
+    document.removeEventListener('pointermove', watchForCancel);
+    document.removeEventListener('pointerup', cancelPendingPress);
+    document.removeEventListener('pointercancel', cancelPendingPress);
+    pendingPress = null;
+  }
+
+  const timer = setTimeout(() => {
+    document.removeEventListener('pointermove', watchForCancel);
+    document.removeEventListener('pointerup', cancelPendingPress);
+    document.removeEventListener('pointercancel', cancelPendingPress);
+    pendingPress = null;
+    armDrag(event, originEl, type, catIdx, rowIdx);
+  }, DRAG_HOLD_MS);
+
+  pendingPress = { timer };
+  document.addEventListener('pointermove', watchForCancel);
+  document.addEventListener('pointerup', cancelPendingPress);
+  document.addEventListener('pointercancel', cancelPendingPress);
+});
+
+function armDrag(event, originEl, type, catIdx, rowIdx) {
+  // If the user was mid-edit in this same row's text field when they started
+  // the long-press elsewhere on it, force the pending change to commit (via
+  // its onchange handler) before cloning — otherwise the clone would carry a
+  // stale value attribute rather than what's actually on screen
+  if (document.activeElement && originEl.contains(document.activeElement)) {
+    document.activeElement.blur();
+  }
+
+  try { originEl.setPointerCapture(event.pointerId); } catch {}
+  document.body.style.touchAction = 'none';
+  try { navigator.vibrate?.(10); } catch {}
+
+  const originRect = originEl.getBoundingClientRect();
+  const containerEl = originEl.parentElement;
+  const stickyWrap = document.querySelector('.sticky-wrap');
+  const topZoneStart = stickyWrap ? stickyWrap.getBoundingClientRect().height : 0;
+
+  const floatingEl = originEl.cloneNode(true);
+  floatingEl.classList.add('drag-clone');
+  floatingEl.setAttribute('aria-hidden', 'true');
+  // Strip ids from the clone so it can never collide with the real
+  // (hidden-in-place) element for the duration of the drag — e.g. two nodes
+  // both named "remaining-2-1" would make getElementById() ambiguous
+  floatingEl.removeAttribute('id');
+  floatingEl.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+  floatingEl.style.left = originRect.left + 'px';
+  floatingEl.style.top = originRect.top + 'px';
+  floatingEl.style.width = originRect.width + 'px';
+  document.body.appendChild(floatingEl);
+
+  originEl.classList.add('drag-source-hidden');
+
+  dragState = {
+    type, catIdx, rowIdx, originEl, floatingEl, containerEl,
+    // The row/category's DOM order at arm-time always matches its data-array
+    // index one-for-one (nothing has been dragged yet), so the index handed
+    // in from the pointerdown handler doubles as the drag's start index
+    startIndex: type === 'row' ? rowIdx : catIdx,
+    offsetX: event.clientX - originRect.left,
+    offsetY: event.clientY - originRect.top,
+    height: originRect.height,
+    lastClientX: event.clientX,
+    lastClientY: event.clientY,
+    topZoneStart,
+    pointerId: event.pointerId,
+    scrollRAF: null
+  };
+
+  document.addEventListener('pointermove', onDragPointerMove);
+  document.addEventListener('pointerup', endDrag);
+  document.addEventListener('pointercancel', endDrag);
+
+  dragState.scrollRAF = requestAnimationFrame(dragTick);
+}
+
+function onDragPointerMove(event) {
+  if (!dragState || event.pointerId !== dragState.pointerId) return;
+  dragState.lastClientX = event.clientX;
+  dragState.lastClientY = event.clientY;
+}
+
+// Runs every frame while a drag is active rather than only on pointermove —
+// auto-scroll (and the swap checks that depend on it) must keep working even
+// while the finger holds still near a screen edge, which fires no move events
+function dragTick() {
+  if (!dragState) return;
+  autoScrollIfNeeded();
+  positionFloatingEl();
+  detectSwap();
+  dragState.scrollRAF = requestAnimationFrame(dragTick);
+}
+
+function positionFloatingEl() {
+  const { floatingEl, lastClientX, lastClientY, offsetX, offsetY } = dragState;
+  floatingEl.style.left = (lastClientX - offsetX) + 'px';
+  floatingEl.style.top = (lastClientY - offsetY) + 'px';
+}
+
+function autoScrollIfNeeded() {
+  const y = dragState.lastClientY;
+  const topZoneEnd = dragState.topZoneStart + DRAG_EDGE_ZONE;
+  const bottomZoneStart = window.innerHeight - DRAG_EDGE_ZONE;
+
+  if (y < topZoneEnd) {
+    const depth = Math.min(Math.max((topZoneEnd - y) / DRAG_EDGE_ZONE, 0), 1);
+    window.scrollBy(0, -depth * DRAG_MAX_SCROLL_SPEED);
+  } else if (y > bottomZoneStart) {
+    const depth = Math.min(Math.max((y - bottomZoneStart) / DRAG_EDGE_ZONE, 0), 1);
+    window.scrollBy(0, depth * DRAG_MAX_SCROLL_SPEED);
+  }
+}
+
+// Rows may only reorder among the other rows of their own category (the
+// container is already scoped to one category, so this can't cross-category
+// by construction). Categories may only reorder among each other — Income
+// (always the first .section) is never included, so it can never be
+// displaced or landed on, from either direction.
+function getSwapCandidates() {
+  const { type, containerEl } = dragState;
+  if (type === 'row') {
+    return Array.from(containerEl.children).filter(el => el.classList.contains('budget-row'));
+  }
+  return Array.from(containerEl.children).filter(el => el.classList.contains('section')).slice(1);
+}
+
+function detectSwap() {
+  const { originEl, containerEl, lastClientY, offsetY, height } = dragState;
+  const floatingCenterY = lastClientY - offsetY + height / 2;
+  const candidates = getSwapCandidates();
+  const idx = candidates.indexOf(originEl);
+  if (idx === -1) return; // origin briefly not among candidates mid-swap; next tick resolves it
+
+  const prevCandidate = candidates[idx - 1];
+  if (prevCandidate) {
+    const rect = prevCandidate.getBoundingClientRect();
+    if (floatingCenterY < rect.top + rect.height / 2) {
+      animateDisplacement(prevCandidate, () => containerEl.insertBefore(originEl, prevCandidate));
+      return;
+    }
+  }
+
+  const nextCandidate = candidates[idx + 1];
+  if (nextCandidate) {
+    const rect = nextCandidate.getBoundingClientRect();
+    if (floatingCenterY > rect.top + rect.height / 2) {
+      animateDisplacement(nextCandidate, () => containerEl.insertBefore(originEl, nextCandidate.nextSibling));
+    }
+  }
+}
+
+// FLIP: snapshot the displaced sibling's position before the DOM move, then
+// animate it from there back to zero — makes it visibly slide into its new
+// slot instead of instantly jumping, the detail that makes a reorder feel
+// deliberate rather than glitchy
+function animateDisplacement(el, moveFn) {
+  const oldRect = el.getBoundingClientRect();
+  moveFn();
+  const newRect = el.getBoundingClientRect();
+  const deltaY = oldRect.top - newRect.top;
+  if (!deltaY) return;
+
+  el.style.transition = 'none';
+  el.style.transform = `translateY(${deltaY}px)`;
+  requestAnimationFrame(() => {
+    el.style.transition = 'transform 150ms ease';
+    el.style.transform = '';
+  });
+  el.addEventListener('transitionend', function cleanup() {
+    el.style.transition = '';
+    el.removeEventListener('transitionend', cleanup);
+  });
+}
+
+function endDrag(event) {
+  if (!dragState || event.pointerId !== dragState.pointerId) return;
+  const { type, catIdx, originEl, floatingEl, containerEl, startIndex } = dragState;
+  const cancelled = event.type === 'pointercancel';
+
+  cancelAnimationFrame(dragState.scrollRAF);
+  document.removeEventListener('pointermove', onDragPointerMove);
+  document.removeEventListener('pointerup', endDrag);
+  document.removeEventListener('pointercancel', endDrag);
+  document.body.style.touchAction = '';
+  try { originEl.releasePointerCapture(dragState.pointerId); } catch {}
+  floatingEl.remove();
+  originEl.classList.remove('drag-source-hidden');
+
+  // A long-press that picked the item up still ends in a pointerup on the
+  // same spot it started — guard against that being read as a stray click on
+  // whatever's now under the finger (most importantly, the ⋮ button)
+  suppressNextClick = true;
+  setTimeout(() => { suppressNextClick = false; }, 300);
+
+  dragState = null;
+  if (cancelled) return; // e.g. an incoming call interrupted the gesture — snap back, no save
+
+  if (type === 'row') {
+    const finalIdx = Array.from(containerEl.children).filter(el => el.classList.contains('budget-row')).indexOf(originEl);
+    reorderRows(catIdx, startIndex, finalIdx);
+  } else {
+    const finalIdx = Array.from(containerEl.children).filter(el => el.classList.contains('section')).indexOf(originEl);
+    reorderCategories(startIndex, finalIdx);
+  }
+}
+
+document.addEventListener('click', (event) => {
+  if (!suppressNextClick) return;
+  suppressNextClick = false;
+  event.stopPropagation();
+  event.preventDefault();
+}, true);
 
 // Centered modal (not a bottom sheet — see openCenterModal) with a numeric
 // entry field, replacing the native prompt() so mobile browsers show a
@@ -1806,7 +2049,7 @@ function renderBudget() {
     const headerStyle = `background:${cat.colour};`;
 
     html += `
-    <div class="section">
+    <div class="section" data-cat-idx="${catIdx}">
       <div class="section-header" style="${headerStyle}">
         <div class="section-header-left">
           <span>${escapeHtml(cat.name)}</span>
@@ -1864,7 +2107,7 @@ function renderBudget() {
       }
 
       html += `
-      <div class="budget-row">
+      <div class="budget-row" data-cat-idx="${catIdx}" data-row-idx="${rowIdx}">
         <div class="cell-expense">
           <input type="text" placeholder="${cat.isIncome ? 'Income source' : 'Expense name'}" value="${safeExpense}" aria-label="${cat.isIncome ? 'Income source' : 'Expense name'}"
             onchange="updateRow(${catIdx},${rowIdx},'expense',this.value)" />

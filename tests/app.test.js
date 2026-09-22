@@ -230,11 +230,95 @@ test('reorders rows within a category', () => {
   });
   const { context } = loadApp({ storage });
 
-  context.moveRow(1, 1, -1);
+  context.reorderRows(1, 1, 0);
 
   const saved = JSON.parse(storage.getItem('budget_2026_6'));
   assert.equal(saved[1].rows[0].expense, 'Bread');
   assert.equal(saved[1].rows[1].expense, 'Milk');
+});
+
+test('reorderRows supports an arbitrary-distance move, not just adjacent swaps', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Bread', cost: '5', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Eggs', cost: '20', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Cheese', cost: '30', paid: false, mode: 'fully-paid', runningTotal: '' }
+      ] }
+    ])
+  });
+  const { context } = loadApp({ storage });
+
+  // First → last
+  context.reorderRows(1, 0, 3);
+  let saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.deepEqual(saved[1].rows.map(r => r.expense), ['Bread', 'Eggs', 'Cheese', 'Milk']);
+
+  // Last → first
+  context.reorderRows(1, 3, 0);
+  saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.deepEqual(saved[1].rows.map(r => r.expense), ['Milk', 'Bread', 'Eggs', 'Cheese']);
+});
+
+test('reorderRows is a no-op (and records no undo entry) when fromIdx === toIdx', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Bread', cost: '5', paid: false, mode: 'fully-paid', runningTotal: '' }
+      ] }
+    ])
+  });
+  const { context } = loadApp({ storage });
+
+  const before = context.getUndoStack().length;
+  context.reorderRows(1, 1, 1);
+
+  assert.equal(context.getUndoStack().length, before, 'a no-op reorder must not push an undo entry');
+});
+
+test('reorderCategories moves a category an arbitrary distance and Income stays pinned at index 0', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Home', colour: '#FF6B6B', isIncome: false, rows: [{ expense: 'Rent', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#4ECDC4', isIncome: false, rows: [{ expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Fuel', colour: '#FFD93D', isIncome: false, rows: [{ expense: 'Petrol', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+    ])
+  });
+  const { context } = loadApp({ storage });
+
+  context.reorderCategories(3, 1); // Fuel to just below Income
+  const saved = JSON.parse(storage.getItem('budget_2026_6'));
+
+  assert.deepEqual(saved.map(c => c.name), ['Income', 'Fuel', 'Home', 'Food']);
+  assert.equal(saved[0].isIncome, true);
+  assert.equal(saved[0].name, 'Income');
+  assert.equal(saved[1].isIncome, false);
+});
+
+test('reorderCategories refuses to move Income or to drop anything at index 0', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Home', colour: '#FF6B6B', isIncome: false, rows: [{ expense: 'Rent', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#4ECDC4', isIncome: false, rows: [{ expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+    ])
+  });
+  const { context } = loadApp({ storage });
+  const before = storage.getItem('budget_2026_6');
+
+  context.reorderCategories(0, 1); // attempt to move Income itself
+  context.reorderCategories(2, 0); // attempt to drop a category at index 0
+
+  assert.equal(storage.getItem('budget_2026_6'), before, 'neither call may change the saved order');
 });
 
 test('In Account shows a negative sign and the negative colour class when overspent', () => {
@@ -792,14 +876,13 @@ test('every fixed dark/black text colour outside the category header is overridd
   });
 });
 
-test('category menu hides Rename/Move/Delete for Income, and Move Up/Down at the array boundaries, instead of showing them disabled', () => {
+test('category menu hides Rename/Delete for Income (still allows Change Colour), and never shows Move Up/Down — reordering is drag-only now', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
       { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
       { name: 'A', colour: '#FF6B6B', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-      { name: 'B', colour: '#FF6B6B', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] },
-      { name: 'C', colour: '#FF6B6B', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+      { name: 'B', colour: '#FF6B6B', isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }
     ])
   });
   const { context, document } = loadApp({ storage });
@@ -813,23 +896,20 @@ test('category menu hides Rename/Move/Delete for Income, and Move Up/Down at the
   assert.ok(!html.includes('Delete'));
   assert.ok(html.includes('Change Colour'), 'Income should still be able to change colour');
 
-  context.openCategoryMenu(1); // "A" — right after Income
+  context.openCategoryMenu(1); // "A" — a non-Income category
   html = document.getElementById('bottomSheet').innerHTML;
-  assert.ok(!html.includes('Move Up'), 'moving up would land on/above Income');
-  assert.ok(html.includes('Move Down'));
+  assert.ok(!html.includes('Move Up'), 'reordering is now long-press-and-drag, not a menu option');
+  assert.ok(!html.includes('Move Down'));
+  assert.ok(html.includes('Rename'));
+  assert.ok(html.includes('Delete'));
 
-  context.openCategoryMenu(2); // "B" — a middle category
+  context.openCategoryMenu(2); // "B" — last category, same expectation
   html = document.getElementById('bottomSheet').innerHTML;
-  assert.ok(html.includes('Move Up'));
-  assert.ok(html.includes('Move Down'));
-
-  context.openCategoryMenu(3); // "C" — last category
-  html = document.getElementById('bottomSheet').innerHTML;
-  assert.ok(html.includes('Move Up'));
-  assert.ok(!html.includes('Move Down'), 'already last, nothing to move down to');
+  assert.ok(!html.includes('Move Up'));
+  assert.ok(!html.includes('Move Down'));
 });
 
-test('row menu hides Move Up/Down at the first/last row instead of showing them disabled', () => {
+test('row menu never shows Move Up/Down — reordering is drag-only now', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -847,16 +927,16 @@ test('row menu hides Move Up/Down at the first/last row instead of showing them 
   let html = document.getElementById('bottomSheet').innerHTML;
   assert.ok(!html.includes('disabled'));
   assert.ok(!html.includes('Move Up'));
-  assert.ok(html.includes('Move Down'));
+  assert.ok(!html.includes('Move Down'));
 
   context.openRowMenu(1, 1); // middle row
   html = document.getElementById('bottomSheet').innerHTML;
-  assert.ok(html.includes('Move Up'));
-  assert.ok(html.includes('Move Down'));
+  assert.ok(!html.includes('Move Up'));
+  assert.ok(!html.includes('Move Down'));
 
   context.openRowMenu(1, 2); // last row
   html = document.getElementById('bottomSheet').innerHTML;
-  assert.ok(html.includes('Move Up'));
+  assert.ok(!html.includes('Move Up'));
   assert.ok(!html.includes('Move Down'));
 });
 
@@ -900,7 +980,7 @@ test('"Add to Total" only appears on running-total rows, and adds the entered am
   assert.equal(stack[stack.length - 1].desc, 'Added R 50.00 to running total for "Emergency fund" (July 2026)');
 });
 
-test('row menu lists options in Add to Total, Switch Mode, Move Up, Move Down, Remove Row order', () => {
+test('row menu lists options in Add to Total, Switch Mode, Remove Row order', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -919,11 +999,10 @@ test('row menu lists options in Add to Total, Switch Mode, Move Up, Move Down, R
 
   const addIdx = html.indexOf('Add to Total');
   const switchIdx = html.indexOf('Switch Row to');
-  const upIdx = html.indexOf('Move Up');
-  const downIdx = html.indexOf('Move Down');
   const removeIdx = html.indexOf('Remove Row');
-  assert.ok([addIdx, switchIdx, upIdx, downIdx, removeIdx].every(i => i !== -1), 'expected all five options to be present for a middle running-total row');
-  assert.ok(addIdx < switchIdx && switchIdx < upIdx && upIdx < downIdx && downIdx < removeIdx, 'Remove Row must always be last');
+  assert.ok([addIdx, switchIdx, removeIdx].every(i => i !== -1), 'expected all three options to be present for a middle running-total row');
+  assert.ok(addIdx < switchIdx && switchIdx < removeIdx, 'Remove Row must always be last');
+  assert.ok(!html.includes('Move Up') && !html.includes('Move Down'), 'reordering is long-press-and-drag now, not a menu option');
 });
 
 test('main menu places App Permissions after Undo/Redo, and Help after App Permissions', () => {
@@ -1012,7 +1091,7 @@ test('Income rows never expose Running Total mode, even on legacy data already s
   assert.ok(!html.includes('Add to Total'), 'Add to Total should never appear on an Income row');
 });
 
-test('category menu lists options in Move Up, Move Down, Rename, Change Colour, Delete order', () => {
+test('category menu lists options in Rename, Change Colour, Delete order', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1027,13 +1106,12 @@ test('category menu lists options in Move Up, Move Down, Rename, Change Colour, 
   context.openCategoryMenu(2); // "B" — a middle category, so every option is present
   const html = document.getElementById('bottomSheet').innerHTML;
 
-  const upIdx = html.indexOf('Move Up');
-  const downIdx = html.indexOf('Move Down');
   const renameIdx = html.indexOf('Rename');
   const colourIdx = html.indexOf('Change Colour');
   const deleteIdx = html.indexOf('Delete');
-  assert.ok([upIdx, downIdx, renameIdx, colourIdx, deleteIdx].every(i => i !== -1), 'expected all five options to be present for a middle category');
-  assert.ok(upIdx < downIdx && downIdx < renameIdx && renameIdx < colourIdx && colourIdx < deleteIdx);
+  assert.ok([renameIdx, colourIdx, deleteIdx].every(i => i !== -1), 'expected all three options to be present for a middle category');
+  assert.ok(renameIdx < colourIdx && colourIdx < deleteIdx);
+  assert.ok(!html.includes('Move Up') && !html.includes('Move Down'), 'reordering is long-press-and-drag now, not a menu option');
 });
 
 test('User Manual and FAQ use inline SVG icons matching the app\'s existing icon style, not emoji', () => {
