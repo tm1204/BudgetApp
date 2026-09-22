@@ -317,6 +317,26 @@ main { padding: 16px; }
   cursor: pointer;
   padding: 0;
   line-height: 1;
+  position: relative;
+}
+
+/* Long-press-to-drag starts here, but the visible glyph is tiny (18px,
+   unpadded) inside a 32px-wide grid column — easy to miss, especially while
+   holding still for the long-press, and a touch that lands just outside it
+   falls onto plain row text (no touch-callout suppression there) and shows
+   the native text-selection menu instead. This invisible pseudo-element
+   enlarges the actual touch target well past the glyph without changing the
+   button's own box (so row height/grid layout are unaffected). Biased
+   towards the row's own top/bottom padding and its right/outer edge — both
+   empty space — and kept tight on the left, where the checkbox/running-total
+   cell sits immediately next to it. */
+.row-ellipsis-btn::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  bottom: -10px;
+  left: -2px;
+  right: -10px;
 }
 
 .add-btn {
