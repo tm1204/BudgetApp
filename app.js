@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.10.1';
+const APP_VERSION = '5.10.2';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -1324,18 +1324,36 @@ document.addEventListener('pointerdown', (event) => {
   const pointerId = event.pointerId;
   const startX = event.clientX;
   let lastY = event.clientY;
-  let scrolling = false; // this touch turned out to be a swipe, not a hold
-  let armed = false;     // the long-press fired — armDrag() owns cleanup from here
+  let latestY = event.clientY;
+  let scrolling = false;  // this touch turned out to be a swipe, not a hold
+  let armed = false;      // the long-press fired — armDrag() owns cleanup from here
+  let scrollRafPending = false;
+
+  // Applies at most once per frame rather than once per pointermove — touch
+  // devices can deliver pointermove in bursts out of sync with paint, and
+  // calling scrollBy() straight from the raw event stream (as an earlier
+  // version of this did) produced visibly jerky, uneven scrolling. Batching
+  // to the frame clock is the same fix already used for auto-scroll during
+  // an active drag, in dragTick() below.
+  const applyPendingScroll = () => {
+    scrollRafPending = false;
+    if (!scrolling) return;
+    window.scrollBy(0, lastY - latestY);
+    lastY = latestY;
+  };
 
   const onMove = (moveEvent) => {
     if (moveEvent.pointerId !== pointerId || armed) return;
+    latestY = moveEvent.clientY;
     if (!scrolling) {
-      if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - lastY) <= DRAG_CANCEL_PX) return;
+      if (Math.hypot(moveEvent.clientX - startX, latestY - lastY) <= DRAG_CANCEL_PX) return;
       clearTimeout(timer);
       scrolling = true;
     }
-    window.scrollBy(0, lastY - moveEvent.clientY);
-    lastY = moveEvent.clientY;
+    if (!scrollRafPending) {
+      scrollRafPending = true;
+      requestAnimationFrame(applyPendingScroll);
+    }
   };
 
   const onUp = (upEvent) => {
