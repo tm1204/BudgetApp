@@ -1229,6 +1229,73 @@ test('ticking "Paid" on a fully-paid row stamps paidAt; unticking clears it', ()
   assert.equal(saved[1].rows[0].paidAt, null);
 });
 
+test('handlePaidToggle checks a row straight through, with no confirm prompt', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }
+      ] }
+    ])
+  });
+  const { context, confirms } = loadApp({ storage, confirmReturns: true });
+
+  const checkbox = { checked: true };
+  context.handlePaidToggle(1, 0, checkbox);
+
+  assert.equal(confirms.length, 0, 'ticking Paid must not prompt for confirmation');
+  const saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].paid, true);
+  assert.ok(!isNaN(new Date(saved[1].rows[0].paidAt).getTime()));
+  assert.equal(checkbox.checked, true);
+});
+
+test('handlePaidToggle prompts before unchecking; accepting clears paid/paidAt', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-05T09:00:00.000Z' }
+      ] }
+    ])
+  });
+  const { context, confirms } = loadApp({ storage, confirmReturns: true });
+
+  const checkbox = { checked: false };
+  context.handlePaidToggle(1, 0, checkbox);
+
+  assert.equal(confirms.length, 1, 'unchecking Paid must prompt for confirmation');
+  assert.ok(confirms[0].includes('Milk'));
+  const saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].paid, false);
+  assert.equal(saved[1].rows[0].paidAt, null);
+  assert.equal(checkbox.checked, false);
+});
+
+test('handlePaidToggle declining the confirm leaves paid/paidAt untouched and re-checks the box', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-05T09:00:00.000Z' }
+      ] }
+    ])
+  });
+  const { context, confirms } = loadApp({ storage, confirmReturns: false });
+
+  const checkbox = { checked: false };
+  context.handlePaidToggle(1, 0, checkbox);
+
+  assert.equal(confirms.length, 1);
+  const saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].paid, true, 'declining must leave the row paid');
+  assert.equal(saved[1].rows[0].paidAt, '2026-07-05T09:00:00.000Z', 'declining must not touch the existing paidAt');
+  assert.equal(checkbox.checked, true, 'declining must put the checkbox back to checked');
+});
+
 test('editing cost on an already-paid row re-stamps paidAt; editing cost while unpaid leaves paidAt untouched', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),

@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.11.2';
+const APP_VERSION = '5.12';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -1027,7 +1027,7 @@ function openUserManual() {
     <div class="help-text">Each category holds rows for individual expenses (or, in Income, sources of income). Use "+ Add row" to add one, and a row's ⋮ button to remove it or switch how it's tracked — press and hold that same button to drag the row to a new position within its category.</div>
 
     <div class="help-heading">Fully Paid vs Running Total rows</div>
-    <div class="help-text">By default a row is "Fully Paid" — tick its checkbox once it's been paid. Switch a row to "Running Total" when a budgeted expense gets paid off in parts rather than all at once — instead of a checkbox you get a running balance, which you can edit directly or top up using the row's "Add to Total" option as each part payment goes through.</div>
+    <div class="help-text">By default a row is "Fully Paid" — tick its checkbox once it's been paid. Unticking it asks for confirmation first, since it clears the row's paid date. Switch a row to "Running Total" when a budgeted expense gets paid off in parts rather than all at once — instead of a checkbox you get a running balance, which you can edit directly or top up using the row's "Add to Total" option as each part payment goes through.</div>
 
     <div class="help-heading">The summary bar</div>
     <div class="help-text">Income is the total of everything in the Income category. Total Expenses is the sum of every other category's costs. Budgeted Balance is Income minus Total Expenses — what you planned. In Account reflects what's actually happened so far: costs from ticked Fully Paid rows, plus current Running Total balances.</div>
@@ -2177,7 +2177,7 @@ function renderBudget() {
         statusCell = `
           <div class="cell-paid">
             <input type="checkbox" ${checkedAttr} aria-label="Paid"
-              onchange="updateRow(${catIdx},${rowIdx},'paid',this.checked)" />
+              onchange="handlePaidToggle(${catIdx},${rowIdx},this)" />
           </div>`;
       }
 
@@ -2274,6 +2274,25 @@ function toggleClass(id, className, active) {
 }
 
 // ── Row Mutations ────────────────────────────────────────────────────────────
+// Unchecking "Paid" clears paidAt (see updateRow below), which is what marks
+// a spend as having happened — the checkbox sits right next to the row's ⋮
+// button, so an accidental uncheck there would silently wipe that fact.
+// Ticking it back on is left as a single tap: a stray tap re-checking an
+// already-unpaid row has no destructive effect worth gating.
+function handlePaidToggle(catIdx, rowIdx, checkboxEl) {
+  if (checkboxEl.checked) {
+    updateRow(catIdx, rowIdx, 'paid', true);
+    return;
+  }
+  const data = loadData(currentYear, currentMonth);
+  const expenseName = data[catIdx].rows[rowIdx].expense || '(unnamed)';
+  if (!confirm(`Mark "${expenseName}" as unpaid?\nThis clears its paid date.`)) {
+    checkboxEl.checked = true;
+    return;
+  }
+  updateRow(catIdx, rowIdx, 'paid', false);
+}
+
 function updateRow(catIdx, rowIdx, field, value) {
   const data = loadData(currentYear, currentMonth);
   const expenseName = data[catIdx].rows[rowIdx].expense || '(unnamed)';
