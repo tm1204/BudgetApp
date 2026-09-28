@@ -1523,21 +1523,24 @@ test('switching month resets the heatmap category filter and the selected day', 
   assert.ok(!heatmapHtml.includes('heatmap-day-summary'), 'a day selected in July should not carry over and be misread against August');
 });
 
-test('heatmap leads with the previous month\'s pay-cycle days (25th onward), only lighting up spend actually logged there', () => {
+test('heatmap shows an August-budgeted row paid a few days early (e.g. rent) as a lead-in day, sourced from August\'s own data — not from a separate July store', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 7 }), // August 2026
-    budget_2026_6: JSON.stringify([ // July 2026 — the previous month
+    // July's own store has a genuinely-July expense on the 26th — this must
+    // never leak onto August's heatmap as a lead day, or it would be
+    // double-counted (it already renders on July's own heatmap when viewed)
+    budget_2026_6: JSON.stringify([
       { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
-      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
-        { expense: 'Petrol', cost: '300', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-27T10:00:00.000Z' }
-      ] },
       { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
-        { expense: 'Milk', cost: '50', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-10T10:00:00.000Z' } // before the 25th — outside the pay-cycle window
+        { expense: 'Groceries', cost: '999', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-26T10:00:00.000Z' }
       ] }
     ]),
-    budget_2026_7: JSON.stringify([ // August 2026 — the month in view
+    // Rent lives under August's own row/budget, but was ticked paid on the
+    // 28th of July so it clears the landlord's account by the 1st
+    budget_2026_7: JSON.stringify([
       { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
-      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+      { name: 'Home', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Rent', cost: '300', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-28T10:00:00.000Z' },
         { expense: 'Diesel', cost: '200', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-08-03T10:00:00.000Z' }
       ] }
     ])
@@ -1545,39 +1548,45 @@ test('heatmap leads with the previous month\'s pay-cycle days (25th onward), onl
   const { context, document } = loadApp({ storage });
 
   const heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
-  // the lead day with a logged spend shows it, dimmed as a previous-month cell
-  assert.ok(heatmapHtml.includes(`July 27 — ${context.fmt(300)}`));
+  // the early-paid August rent shows as a dimmed lead-in day
+  assert.ok(heatmapHtml.includes(`July 28 — ${context.fmt(300)}`));
   assert.ok(heatmapHtml.includes('heatmap-cell prev-month'));
-  // July 10 falls before the pay-cycle window and must not appear at all
-  assert.ok(!heatmapHtml.includes('July 10'));
   // a lead day with nothing logged shows an honest empty state, not backfilled/assumed spend
-  assert.ok(heatmapHtml.includes('July 26 — no spend logged'));
-  // the current month's own days still render as before
+  assert.ok(heatmapHtml.includes('July 27 — no spend logged'));
+  // July's own R999 Groceries entry must not leak in from its separate store
+  assert.ok(!heatmapHtml.includes('999') && !heatmapHtml.includes('July 26'));
+  // August's own day still renders as before
   assert.ok(heatmapHtml.includes(`August 3 — ${context.fmt(200)}`));
 
-  context.selectHeatmapDay(-27);
+  context.selectHeatmapDay(-28);
   const summaryHtml = document.getElementById('heatmapContainer').innerHTML;
   assert.ok(summaryHtml.includes('heatmap-cell prev-month selected'), 'a selected lead-day cell should still carry the prev-month class alongside selected');
   assert.ok(summaryHtml.includes('heatmap-day-summary'));
-  assert.ok(summaryHtml.includes('July 27') && summaryHtml.includes('Petrol'));
+  assert.ok(summaryHtml.includes('July 28') && summaryHtml.includes('Rent'));
 
-  context.setHeatmapFilter('Food');
-  const filteredHtml = document.getElementById('heatmapContainer').innerHTML;
-  assert.ok(filteredHtml.includes('July 27 — no spend logged'), 'Fuel\'s lead-day spend should be excluded once filtered to Food');
+  // switching to July confirms its own R999 Groceries entry renders exactly
+  // once, on July's own heatmap, as an ordinary (non-lead) current-month day
+  context.switchMonth(6);
+  const julyHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(julyHtml.includes(`July 26 — ${context.fmt(999)}`));
+  assert.ok(!julyHtml.includes('heatmap-cell prev-month'), 'July has no June data, so it shows no lead days of its own');
 });
 
-test('heatmap\'s previous-month lead days roll over the year boundary correctly (January looks back to December)', () => {
+test('heatmap\'s lead days roll over the year boundary correctly (January looks back to December), still sourced from January\'s own data', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2027, month: 0 }), // January 2027
-    budget_2026_11: JSON.stringify([ // December 2026 — the previous month, previous year
+    // A leftover entry in December's own separate store must not leak onto
+    // January's heatmap either, same double-counting guard as above
+    budget_2026_11: JSON.stringify([
       { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
       { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
-        { expense: 'Petrol', cost: '150', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-12-28T10:00:00.000Z' }
+        { expense: 'Petrol', cost: '777', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-12-30T10:00:00.000Z' }
       ] }
     ]),
     budget_2027_0: JSON.stringify([ // January 2027 — the month in view
       { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
-      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+      { name: 'Home', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Rent', cost: '150', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-12-28T10:00:00.000Z' }, // January's rent, paid early
         { expense: 'Diesel', cost: '90', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2027-01-05T10:00:00.000Z' }
       ] }
     ])
@@ -1587,4 +1596,54 @@ test('heatmap\'s previous-month lead days roll over the year boundary correctly 
   const heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
   assert.ok(heatmapHtml.includes(`December 28 — ${context.fmt(150)}`));
   assert.ok(heatmapHtml.includes(`January 5 — ${context.fmt(90)}`));
+  assert.ok(!heatmapHtml.includes('777') && !heatmapHtml.includes('December 30'), 'December\'s own separate-store spend must not leak into January\'s lead days');
+});
+
+test('heatmap shows no lead days at all when this month\'s own data has nothing dated in the pay-cycle range', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 7 }), // August 2026
+    // July's own store has spend in the 25th-onward range, but it's not
+    // relevant here — lead days are never sourced from a separate previous
+    // month's store, only from the current month's own data
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Petrol', cost: '50', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-26T10:00:00.000Z' }
+      ] }
+    ]),
+    budget_2026_7: JSON.stringify([ // August 2026 — the month in view; nothing dated before the 1st
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Diesel', cost: '200', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-08-03T10:00:00.000Z' }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  const heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(!heatmapHtml.includes('heatmap-cell prev-month'), 'no lead-day cells should render when this month\'s own data has nothing in the pay-cycle range');
+  assert.ok(!heatmapHtml.includes('July'), 'nothing should reference the previous month in this case');
+  assert.ok(heatmapHtml.includes(`August 3 — ${context.fmt(200)}`), 'the current month itself renders as usual');
+});
+
+test('lead-day and current-month heat intensity share one scale, since it\'s all one month\'s own spend', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 7 }), // August 2026
+    budget_2026_7: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Home', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Rent', cost: '200', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-28T10:00:00.000Z' }, // paid early — this month's biggest day
+        { expense: 'Snacks', cost: '10', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-08-03T10:00:00.000Z' }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+  const heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+
+  // R200 (July 28) is this month's biggest day overall, so it hits full intensity
+  assert.ok(heatmapHtml.includes(`style="background:rgba(52,199,89,1)" title="July 28 — ${context.fmt(200)}"`));
+  // R10 (August 3) is scaled against that same shared R200 max (10/200 = 0.05,
+  // clamped up to the 0.18 floor so it's never fully invisible) — not against
+  // a separate August-only max, which would read it as full intensity instead
+  assert.ok(heatmapHtml.includes(`style="background:rgba(52,199,89,0.18)" title="August 3 — ${context.fmt(10)}"`));
 });

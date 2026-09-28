@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.13';
+const APP_VERSION = '5.13.1';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -1775,34 +1775,41 @@ function hexToRgba(hex, alpha) {
 
 // Calendar-style heatmap of the currently viewed month, one cell per day —
 // darker = more spent that day, coloured by the selected category (or a
-// neutral green for "All Categories"). Leads with the previous month's
-// HEATMAP_PAY_CYCLE_START-onward days, since this follows a pay-cycle window
-// rather than a strict calendar month — those lead cells only light up for
-// spend actually recorded on them, nothing is backfilled or assumed. Hidden
-// entirely if nothing has been logged anywhere in the visible window, same
-// empty-state convention as the pie chart.
+// neutral green for "All Categories"). A "month" here means this month's own
+// row/category data (same source as always — see getSpendEvents), but its
+// heatmap also surfaces any of that same data dated in the tail of the
+// previous calendar month (HEATMAP_PAY_CYCLE_START onward) as dimmed lead-in
+// cells. That's for an expense genuinely budgeted under the month being
+// viewed (its row lives in this month's own stored data) but actually paid
+// a few days early — e.g. rent due the 1st that has to clear the landlord's
+// account by then, ticked paid on the 28th. Lead days are never sourced from
+// a separate previous month's own data store: that month's own spend already
+// renders on its own heatmap when you view it, and reading its store again
+// here would double-count it. If nothing in *this* month's own data falls in
+// that window, no lead days are shown at all — nothing is backfilled or
+// assumed. Both sections scale against one shared maximum, since it's all
+// one month's spend either way. Hidden entirely if this month's own data has
+// nothing logged at all, same empty-state convention as the pie chart.
 function renderHeatmap(data) {
   const allEvents = getSpendEvents(data);
+  if (allEvents.length === 0) return '';
 
   const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
   const prevYear  = currentMonth === 0 ? currentYear - 1 : currentYear;
   const prevDaysInMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
   const isLeadDay = d => !isNaN(d.getTime()) && d.getFullYear() === prevYear && d.getMonth() === prevMonth && d.getDate() >= HEATMAP_PAY_CYCLE_START;
-  const prevAllEvents = getSpendEvents(loadData(prevYear, prevMonth)).filter(e => isLeadDay(new Date(e.timestamp)));
-
-  if (allEvents.length === 0 && prevAllEvents.length === 0) return '';
+  const showLeadDays = allEvents.some(e => isLeadDay(new Date(e.timestamp)));
 
   const events = heatmapCategoryFilter === 'all'
     ? allEvents
     : allEvents.filter(e => e.category === heatmapCategoryFilter);
-  const prevEvents = heatmapCategoryFilter === 'all'
-    ? prevAllEvents
-    : prevAllEvents.filter(e => e.category === heatmapCategoryFilter);
 
   const daysInMonth  = new Date(currentYear, currentMonth + 1, 0).getDate();
-  // the grid starts on the pay-cycle's first visible day (the previous
-  // month's HEATMAP_PAY_CYCLE_START), not the 1st of the current month
-  const firstWeekday  = new Date(prevYear, prevMonth, HEATMAP_PAY_CYCLE_START).getDay(); // 0 = Sunday
+  // Lead days shift the grid's start back to the previous month's
+  // HEATMAP_PAY_CYCLE_START; otherwise it starts on the 1st as it always did
+  const firstWeekday = showLeadDays
+    ? new Date(prevYear, prevMonth, HEATMAP_PAY_CYCLE_START).getDay()
+    : new Date(currentYear, currentMonth, 1).getDay(); // 0 = Sunday
   const dayTotals     = new Array(daysInMonth + 1).fill(0);
   const prevDayTotals = new Array(prevDaysInMonth + 1).fill(0);
 
@@ -1811,13 +1818,13 @@ function renderHeatmap(data) {
     if (isNaN(d.getTime())) return;
     if (d.getFullYear() === currentYear && d.getMonth() === currentMonth) {
       dayTotals[d.getDate()] += e.amount;
+    } else if (isLeadDay(d)) {
+      prevDayTotals[d.getDate()] += e.amount;
     }
   });
-  prevEvents.forEach(e => {
-    const d = new Date(e.timestamp);
-    if (isLeadDay(d)) prevDayTotals[d.getDate()] += e.amount;
-  });
 
+  // One shared maximum across both sections — it's all this month's own
+  // spend either way, just some of it dated a few days early.
   const maxSpend = Math.max(0, ...dayTotals.slice(1), ...prevDayTotals.slice(HEATMAP_PAY_CYCLE_START));
   const expenseCats = data.filter(c => !c.isIncome);
   const filterColour = heatmapCategoryFilter === 'all'
@@ -1832,9 +1839,9 @@ function renderHeatmap(data) {
   const weekdayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
     .map(l => `<div class="heatmap-weekday">${l}</div>`).join('');
 
-  // Shared by both the previous month's lead days and the current month's
-  // days below — dayKey is negative for a lead day so it can never collide
-  // with the current month's own day numbers (see selectedHeatmapDay).
+  // Shared by both the lead days and the current month's days below —
+  // dayKey is negative for a lead day so it can never collide with the
+  // current month's own day numbers (see selectedHeatmapDay).
   const cell = (dayKey, day, amount, monthName, extraCls) => {
     const intensity = amount > 0 && maxSpend > 0 ? Math.max(0.18, amount / maxSpend) : 0;
     const style = intensity > 0 ? ` style="background:${hexToRgba(filterColour, intensity)}"` : '';
@@ -1848,8 +1855,10 @@ function renderHeatmap(data) {
 
   let cells = '';
   for (let i = 0; i < firstWeekday; i++) cells += `<div class="heatmap-cell empty"></div>`;
-  for (let day = HEATMAP_PAY_CYCLE_START; day <= prevDaysInMonth; day++) {
-    cells += cell(-day, day, prevDayTotals[day], MONTHS[prevMonth], ' prev-month');
+  if (showLeadDays) {
+    for (let day = HEATMAP_PAY_CYCLE_START; day <= prevDaysInMonth; day++) {
+      cells += cell(-day, day, prevDayTotals[day], MONTHS[prevMonth], ' prev-month');
+    }
   }
   for (let day = 1; day <= daysInMonth; day++) {
     cells += cell(day, day, dayTotals[day], MONTHS[currentMonth], '');
@@ -1867,7 +1876,7 @@ function renderHeatmap(data) {
         ${weekdayLabels}
         ${cells}
       </div>
-      ${renderHeatmapDaySummary(events, prevEvents, prevYear, prevMonth)}
+      ${renderHeatmapDaySummary(events, prevYear, prevMonth)}
     </div>`;
 }
 
@@ -1882,21 +1891,20 @@ function selectHeatmapDay(dayKey) {
   if (el) el.innerHTML = renderHeatmap(loadData(currentYear, currentMonth));
 }
 
-// events/prevEvents are whatever renderHeatmap() already filtered by
-// category — the summary panel stays in sync with the same filter the grid
-// itself shows. A negative selectedHeatmapDay means a previous-month
-// pay-cycle lead day, so the summary is read from prevEvents/prevYear/
-// prevMonth instead of the current month's.
-function renderHeatmapDaySummary(events, prevEvents, prevYear, prevMonth) {
+// events is whatever renderHeatmap() already filtered by category, covering
+// both the current month's own days and any lead days — same single source,
+// see renderHeatmap. A negative selectedHeatmapDay means a previous-month
+// pay-cycle lead day, so the summary matches against prevYear/prevMonth
+// instead of the current month's.
+function renderHeatmapDaySummary(events, prevYear, prevMonth) {
   if (selectedHeatmapDay === null) return '';
 
   const isPrev = selectedHeatmapDay < 0;
   const day    = Math.abs(selectedHeatmapDay);
   const year   = isPrev ? prevYear : currentYear;
   const month  = isPrev ? prevMonth : currentMonth;
-  const source = isPrev ? prevEvents : events;
 
-  const dayEvents = source.filter(e => {
+  const dayEvents = events.filter(e => {
     const d = new Date(e.timestamp);
     return !isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
   });
