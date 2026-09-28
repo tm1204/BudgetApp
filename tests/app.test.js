@@ -1522,3 +1522,69 @@ test('switching month resets the heatmap category filter and the selected day', 
   assert.ok(heatmapHtml.includes('value="all" selected'), 'the filter should reset to All Categories on month switch');
   assert.ok(!heatmapHtml.includes('heatmap-day-summary'), 'a day selected in July should not carry over and be misread against August');
 });
+
+test('heatmap leads with the previous month\'s pay-cycle days (25th onward), only lighting up spend actually logged there', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 7 }), // August 2026
+    budget_2026_6: JSON.stringify([ // July 2026 — the previous month
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Petrol', cost: '300', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-27T10:00:00.000Z' }
+      ] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '50', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-07-10T10:00:00.000Z' } // before the 25th — outside the pay-cycle window
+      ] }
+    ]),
+    budget_2026_7: JSON.stringify([ // August 2026 — the month in view
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Diesel', cost: '200', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-08-03T10:00:00.000Z' }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  const heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  // the lead day with a logged spend shows it, dimmed as a previous-month cell
+  assert.ok(heatmapHtml.includes(`July 27 — ${context.fmt(300)}`));
+  assert.ok(heatmapHtml.includes('heatmap-cell prev-month'));
+  // July 10 falls before the pay-cycle window and must not appear at all
+  assert.ok(!heatmapHtml.includes('July 10'));
+  // a lead day with nothing logged shows an honest empty state, not backfilled/assumed spend
+  assert.ok(heatmapHtml.includes('July 26 — no spend logged'));
+  // the current month's own days still render as before
+  assert.ok(heatmapHtml.includes(`August 3 — ${context.fmt(200)}`));
+
+  context.selectHeatmapDay(-27);
+  const summaryHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(summaryHtml.includes('heatmap-cell prev-month selected'), 'a selected lead-day cell should still carry the prev-month class alongside selected');
+  assert.ok(summaryHtml.includes('heatmap-day-summary'));
+  assert.ok(summaryHtml.includes('July 27') && summaryHtml.includes('Petrol'));
+
+  context.setHeatmapFilter('Food');
+  const filteredHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(filteredHtml.includes('July 27 — no spend logged'), 'Fuel\'s lead-day spend should be excluded once filtered to Food');
+});
+
+test('heatmap\'s previous-month lead days roll over the year boundary correctly (January looks back to December)', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2027, month: 0 }), // January 2027
+    budget_2026_11: JSON.stringify([ // December 2026 — the previous month, previous year
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Petrol', cost: '150', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2026-12-28T10:00:00.000Z' }
+      ] }
+    ]),
+    budget_2027_0: JSON.stringify([ // January 2027 — the month in view
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Diesel', cost: '90', paid: true, mode: 'fully-paid', runningTotal: '', log: [], paidAt: '2027-01-05T10:00:00.000Z' }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  const heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
+  assert.ok(heatmapHtml.includes(`December 28 — ${context.fmt(150)}`));
+  assert.ok(heatmapHtml.includes(`January 5 — ${context.fmt(90)}`));
+});

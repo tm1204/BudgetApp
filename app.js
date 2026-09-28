@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.12';
+const APP_VERSION = '5.13';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -11,6 +11,9 @@ const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i); // current ye
 
 const INCOME_COLOUR = '#e5e5ea'; // Income's default fixed colour, independently selectable from expense palette
 const UNDO_LIMIT = 10; // maximum undo/redo steps retained
+
+const HEATMAP_ALL_COLOUR = '#34c759'; // "All Categories" heat colour — Apple system green, matches the app's other positive/green accents
+const HEATMAP_PAY_CYCLE_START = 25; // heatmap calendar leads with the previous month's this-day-onward, matching pay-cycle timing rather than the calendar month
 
 // 16-colour palette used for expense category headers and pie chart slices.
 // Two properties are deliberately engineered, not just picked by eye:
@@ -67,11 +70,13 @@ let currentMonth = new Date().getMonth();
 // looks empty for no obvious reason.
 let heatmapCategoryFilter = 'all';
 
-// Day currently expanded in the heatmap's inline summary panel (1-31, or
-// null when nothing is selected). Survives a category filter change on
-// purpose — switching categories while a day is open is a reasonable way to
-// compare that day across categories, not a context change that should
-// close the panel. Reset on month/year switch, same as the filter above.
+// Day currently expanded in the heatmap's inline summary panel (1-31 for the
+// current month, negative for one of the previous month's pay-cycle lead
+// days — see renderHeatmap — or null when nothing is selected). Survives a
+// category filter change on purpose — switching categories while a day is
+// open is a reasonable way to compare that day across categories, not a
+// context change that should close the panel. Reset on month/year switch,
+// same as the filter above.
 let selectedHeatmapDay = null;
 
 // Restore last viewed month/year if the app was previously opened —
@@ -1027,7 +1032,7 @@ function openUserManual() {
     <div class="help-text">Each category holds rows for individual expenses (or, in Income, sources of income). Use "+ Add row" to add one, and a row's ⋮ button to remove it or switch how it's tracked — press and hold that same button to drag the row to a new position within its category.</div>
 
     <div class="help-heading">Fully Paid vs Running Total rows</div>
-    <div class="help-text">By default a row is "Fully Paid" — tick its checkbox once it's been paid. Unticking it asks for confirmation first, since it clears the row's paid date. Switch a row to "Running Total" when a budgeted expense gets paid off in parts rather than all at once — instead of a checkbox you get a running balance, which you can edit directly or top up using the row's "Add to Total" option as each part payment goes through.</div>
+    <div class="help-text">By default a row is "Fully Paid" — tick its checkbox once it's been paid. Unticking it asks for confirmation first, since it clears the row's paid date. Switch a row to "Running Total" when a budgeted expense gets paid off in parts rather than all at once — say a R100 monthly coffee budget: instead of a checkbox you get a running balance that climbs each time you buy a cup, either by editing it directly or using the row's "Add to Total" option to add that cup's cost.</div>
 
     <div class="help-heading">The summary bar</div>
     <div class="help-text">Income is the total of everything in the Income category. Total Expenses is the sum of every other category's costs. Budgeted Balance is Income minus Total Expenses — what you planned. In Account reflects what's actually happened so far: costs from ticked Fully Paid rows, plus current Running Total balances.</div>
@@ -1054,7 +1059,7 @@ function openFAQ() {
     ["Why can't I rename, reorder or delete the Income category?", "Income always stays first so the app can reliably tell it apart from expense categories. You can still change its colour."],
     ["How do I reorder categories or rows?", "Press and hold its ⋮ button (the same one that opens its menu) until it lifts, then drag it to a new position and release. A quick tap still opens the menu as usual."],
     ["What happens if my device storage is full?", "The app tells you via a message instead of silently losing your change, and an Undo record may not be kept for it. Export a backup and free up some space."],
-    ["What's the difference between Fully Paid and Running Total rows?", "Fully Paid is a simple paid/not-paid checkbox for a one-off cost. Running Total is for an expense you're paying off in parts rather than all at once — it tracks a running balance instead of a single paid/unpaid state."],
+    ["What's the difference between Fully Paid and Running Total rows?", "Fully Paid is a simple paid/not-paid checkbox for a one-off cost. Running Total is for an expense you're paying off in parts rather than all at once — like a R100 monthly coffee budget, where the running total climbs each time you buy a cup instead of a single paid/unpaid tick."],
     ["Does Set as Template change past months?", "No — it only copies forward from the month you're viewing to later months, and never touches months you've locked with Protect Month."],
     ["How many undos do I get?", "The last 10 actions. Once you go past that, the oldest ones drop off."],
     ["Will my data sync between devices?", "Not yet — everything is stored locally on your device. Use Export and Import to move your data to another device."]
@@ -1763,26 +1768,43 @@ function getSpendEvents(data) {
 // expressed as opacity rather than needing HSL lightness math.
 function hexToRgba(hex, alpha) {
   const m = /^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/.exec(hex || '');
-  if (!m) return `rgba(10,132,255,${alpha})`;
+  if (!m) return hexToRgba(HEATMAP_ALL_COLOUR, alpha);
   const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
 // Calendar-style heatmap of the currently viewed month, one cell per day —
 // darker = more spent that day, coloured by the selected category (or a
-// neutral blue for "All Categories"). Hidden entirely if nothing has been
-// logged yet this month, same empty-state convention as the pie chart.
+// neutral green for "All Categories"). Leads with the previous month's
+// HEATMAP_PAY_CYCLE_START-onward days, since this follows a pay-cycle window
+// rather than a strict calendar month — those lead cells only light up for
+// spend actually recorded on them, nothing is backfilled or assumed. Hidden
+// entirely if nothing has been logged anywhere in the visible window, same
+// empty-state convention as the pie chart.
 function renderHeatmap(data) {
   const allEvents = getSpendEvents(data);
-  if (allEvents.length === 0) return '';
+
+  const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+  const prevYear  = currentMonth === 0 ? currentYear - 1 : currentYear;
+  const prevDaysInMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
+  const isLeadDay = d => !isNaN(d.getTime()) && d.getFullYear() === prevYear && d.getMonth() === prevMonth && d.getDate() >= HEATMAP_PAY_CYCLE_START;
+  const prevAllEvents = getSpendEvents(loadData(prevYear, prevMonth)).filter(e => isLeadDay(new Date(e.timestamp)));
+
+  if (allEvents.length === 0 && prevAllEvents.length === 0) return '';
 
   const events = heatmapCategoryFilter === 'all'
     ? allEvents
     : allEvents.filter(e => e.category === heatmapCategoryFilter);
+  const prevEvents = heatmapCategoryFilter === 'all'
+    ? prevAllEvents
+    : prevAllEvents.filter(e => e.category === heatmapCategoryFilter);
 
-  const daysInMonth   = new Date(currentYear, currentMonth + 1, 0).getDate();
-  const firstWeekday  = new Date(currentYear, currentMonth, 1).getDay(); // 0 = Sunday
+  const daysInMonth  = new Date(currentYear, currentMonth + 1, 0).getDate();
+  // the grid starts on the pay-cycle's first visible day (the previous
+  // month's HEATMAP_PAY_CYCLE_START), not the 1st of the current month
+  const firstWeekday  = new Date(prevYear, prevMonth, HEATMAP_PAY_CYCLE_START).getDay(); // 0 = Sunday
   const dayTotals     = new Array(daysInMonth + 1).fill(0);
+  const prevDayTotals = new Array(prevDaysInMonth + 1).fill(0);
 
   events.forEach(e => {
     const d = new Date(e.timestamp);
@@ -1791,12 +1813,16 @@ function renderHeatmap(data) {
       dayTotals[d.getDate()] += e.amount;
     }
   });
+  prevEvents.forEach(e => {
+    const d = new Date(e.timestamp);
+    if (isLeadDay(d)) prevDayTotals[d.getDate()] += e.amount;
+  });
 
-  const maxSpend = Math.max(0, ...dayTotals.slice(1));
+  const maxSpend = Math.max(0, ...dayTotals.slice(1), ...prevDayTotals.slice(HEATMAP_PAY_CYCLE_START));
   const expenseCats = data.filter(c => !c.isIncome);
   const filterColour = heatmapCategoryFilter === 'all'
-    ? '#0a84ff'
-    : (expenseCats.find(c => c.name === heatmapCategoryFilter)?.colour || '#0a84ff');
+    ? HEATMAP_ALL_COLOUR
+    : (expenseCats.find(c => c.name === heatmapCategoryFilter)?.colour || HEATMAP_ALL_COLOUR);
 
   const options = [`<option value="all"${heatmapCategoryFilter === 'all' ? ' selected' : ''}>All Categories</option>`]
     .concat(expenseCats.map(c =>
@@ -1806,18 +1832,27 @@ function renderHeatmap(data) {
   const weekdayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
     .map(l => `<div class="heatmap-weekday">${l}</div>`).join('');
 
-  let cells = '';
-  for (let i = 0; i < firstWeekday; i++) cells += `<div class="heatmap-cell empty"></div>`;
-  for (let day = 1; day <= daysInMonth; day++) {
-    const amount = dayTotals[day];
+  // Shared by both the previous month's lead days and the current month's
+  // days below — dayKey is negative for a lead day so it can never collide
+  // with the current month's own day numbers (see selectedHeatmapDay).
+  const cell = (dayKey, day, amount, monthName, extraCls) => {
     const intensity = amount > 0 && maxSpend > 0 ? Math.max(0.18, amount / maxSpend) : 0;
     const style = intensity > 0 ? ` style="background:${hexToRgba(filterColour, intensity)}"` : '';
-    const title = escapeHtml(`${MONTHS[currentMonth]} ${day} — ${amount > 0 ? fmt(amount) : 'no spend logged'}`);
-    const selectedCls = selectedHeatmapDay === day ? ' selected' : '';
+    const title = escapeHtml(`${monthName} ${day} — ${amount > 0 ? fmt(amount) : 'no spend logged'}`);
+    const selectedCls = selectedHeatmapDay === dayKey ? ' selected' : '';
     // title gives desktop/browser hover a tooltip, but this is a phone-only
     // PWA with no hover — tapping expands the inline summary panel below
     // the grid instead, which is the primary way to read a cell
-    cells += `<div class="heatmap-cell${selectedCls}"${style} title="${title}" onclick="selectHeatmapDay(${day})"><span class="heatmap-daynum">${day}</span></div>`;
+    return `<div class="heatmap-cell${extraCls}${selectedCls}"${style} title="${title}" onclick="selectHeatmapDay(${dayKey})"><span class="heatmap-daynum">${day}</span></div>`;
+  };
+
+  let cells = '';
+  for (let i = 0; i < firstWeekday; i++) cells += `<div class="heatmap-cell empty"></div>`;
+  for (let day = HEATMAP_PAY_CYCLE_START; day <= prevDaysInMonth; day++) {
+    cells += cell(-day, day, prevDayTotals[day], MONTHS[prevMonth], ' prev-month');
+  }
+  for (let day = 1; day <= daysInMonth; day++) {
+    cells += cell(day, day, dayTotals[day], MONTHS[currentMonth], '');
   }
 
   return `
@@ -1832,30 +1867,41 @@ function renderHeatmap(data) {
         ${weekdayLabels}
         ${cells}
       </div>
-      ${renderHeatmapDaySummary(events)}
+      ${renderHeatmapDaySummary(events, prevEvents, prevYear, prevMonth)}
     </div>`;
 }
 
 // Tapping a cell expands/collapses an inline panel showing that day's total
 // plus every individual spend that made it up — tapping the already-selected
-// day again collapses it, so no separate close control is needed.
-function selectHeatmapDay(day) {
-  selectedHeatmapDay = selectedHeatmapDay === day ? null : day;
+// day again collapses it, so no separate close control is needed. dayKey is
+// negative for one of the previous month's pay-cycle lead days (see
+// renderHeatmap), positive for a current-month day.
+function selectHeatmapDay(dayKey) {
+  selectedHeatmapDay = selectedHeatmapDay === dayKey ? null : dayKey;
   const el = document.getElementById('heatmapContainer');
   if (el) el.innerHTML = renderHeatmap(loadData(currentYear, currentMonth));
 }
 
-// events is whatever renderHeatmap() already filtered by category — the
-// summary panel stays in sync with the same filter the grid itself shows.
-function renderHeatmapDaySummary(events) {
+// events/prevEvents are whatever renderHeatmap() already filtered by
+// category — the summary panel stays in sync with the same filter the grid
+// itself shows. A negative selectedHeatmapDay means a previous-month
+// pay-cycle lead day, so the summary is read from prevEvents/prevYear/
+// prevMonth instead of the current month's.
+function renderHeatmapDaySummary(events, prevEvents, prevYear, prevMonth) {
   if (selectedHeatmapDay === null) return '';
 
-  const dayEvents = events.filter(e => {
+  const isPrev = selectedHeatmapDay < 0;
+  const day    = Math.abs(selectedHeatmapDay);
+  const year   = isPrev ? prevYear : currentYear;
+  const month  = isPrev ? prevMonth : currentMonth;
+  const source = isPrev ? prevEvents : events;
+
+  const dayEvents = source.filter(e => {
     const d = new Date(e.timestamp);
-    return !isNaN(d.getTime()) && d.getFullYear() === currentYear && d.getMonth() === currentMonth && d.getDate() === selectedHeatmapDay;
+    return !isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
   });
 
-  const dateLabel = escapeHtml(`${MONTHS[currentMonth]} ${selectedHeatmapDay}`);
+  const dateLabel = escapeHtml(`${MONTHS[month]} ${day}`);
 
   if (dayEvents.length === 0) {
     return `

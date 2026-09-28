@@ -531,6 +531,11 @@ main { padding: 16px; }
 
 .heatmap-cell.empty { background: none; cursor: default; }
 
+/* Previous month's pay-cycle lead days (25th onward) — dimmed day number so
+   they read as adjacent-month context, same convention as most calendar
+   apps, without needing a second colour */
+.heatmap-cell.prev-month .heatmap-daynum { opacity: 0.45; }
+
 /* inset so the ring doesn't shift cell size/layout */
 .heatmap-cell.selected { box-shadow: inset 0 0 0 2px #0a84ff; }
 
