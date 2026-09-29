@@ -1296,7 +1296,7 @@ test('handlePaidToggle declining the confirm leaves paid/paidAt untouched and re
   assert.equal(checkbox.checked, true, 'declining must put the checkbox back to checked');
 });
 
-test('editing cost on an already-paid row re-stamps paidAt; editing cost while unpaid leaves paidAt untouched', () => {
+test('editing cost never touches paidAt, paid or unpaid — only the checkbox itself sets/clears it', () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1309,13 +1309,12 @@ test('editing cost on an already-paid row re-stamps paidAt; editing cost while u
   });
   const { context } = loadApp({ storage });
 
-  // Already paid — a cost edit is a new spend happening now, not a
-  // retroactive edit to the old spend's date
+  // Already paid — a cost correction isn't a new payment event, so the
+  // original paid date is left exactly as it was
   context.updateRow(1, 0, 'cost', '15');
   let saved = JSON.parse(storage.getItem('budget_2026_6'));
   assert.equal(saved[1].rows[0].cost, '15');
-  assert.notEqual(saved[1].rows[0].paidAt, '2020-01-01T00:00:00.000Z', 'the stale paidAt should be replaced, not left pointing at the old amount\'s date');
-  assert.ok(!isNaN(new Date(saved[1].rows[0].paidAt).getTime()));
+  assert.equal(saved[1].rows[0].paidAt, '2020-01-01T00:00:00.000Z', 'a cost edit must leave the existing paidAt untouched, even though the amount changed');
 
   // Not yet paid — editing cost is just budgeting, not a spend event
   context.updateRow(1, 1, 'cost', '7');
@@ -1374,6 +1373,56 @@ test('"Add to Total" appends a log entry for the amount added', () => {
   assert.equal(saved[1].rows[0].log.length, 1);
   assert.equal(saved[1].rows[0].log[0].amount, 50);
   assert.equal(typeof saved[1].rows[0].log[0].timestamp, 'string');
+  assert.equal(saved[1].rows[0].log[0].description, undefined, 'no description field should be stored when the description input is left blank');
+});
+
+test('"Add to Total" stores an optional description on the log entry, capped at 15 characters, and shows it inline with the expense in the log', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Week 1', cost: '500', paid: false, mode: 'running-total', runningTotal: '0', log: [], paidAt: null }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  context.openAddToTotalModal(1, 0);
+  document.getElementById('addToTotalDescriptionInput').value = 'Weekend trip that is way too long';
+  document.getElementById('addToTotalInput').value = '120';
+  context.submitAddToTotal(1, 0);
+
+  const saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].log[0].description, 'Weekend trip th', 'a description longer than 15 characters must be truncated, even past whatever the input\'s own maxlength allowed through');
+
+  context.openExpenseLog();
+  const logHtml = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(logHtml.includes('Week 1 — Weekend trip th'), 'the description should render inline with the expense name, on the same line');
+  assert.ok(logHtml.includes('Fuel'));
+});
+
+test('a direct edit to the running total field (not via Add to Total) logs a delta with no description', () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] },
+      { name: 'Fuel', colour: '#3498DB', isIncome: false, rows: [
+        { expense: 'Week 1', cost: '500', paid: false, mode: 'running-total', runningTotal: '100', log: [], paidAt: null }
+      ] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+
+  context.updateRow(1, 0, 'runningTotal', '150');
+  const saved = JSON.parse(storage.getItem('budget_2026_6'));
+  assert.equal(saved[1].rows[0].log[0].amount, 50);
+  assert.equal(saved[1].rows[0].log[0].description, undefined);
+
+  context.openExpenseLog();
+  const logHtml = document.getElementById('bottomSheet').innerHTML;
+  assert.ok(logHtml.includes('Week 1'));
+  assert.ok(!logHtml.includes('undefined') && !logHtml.includes(' — '), 'a description-less entry should render the expense name plainly, with no stray separator');
 });
 
 test('switching a row\'s mode clears its spend history (log and paidAt), regardless of direction', () => {

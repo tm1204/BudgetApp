@@ -3,7 +3,7 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.13.1';
+const APP_VERSION = '5.14';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -14,6 +14,8 @@ const UNDO_LIMIT = 10; // maximum undo/redo steps retained
 
 const HEATMAP_ALL_COLOUR = '#34c759'; // "All Categories" heat colour — Apple system green, matches the app's other positive/green accents
 const HEATMAP_PAY_CYCLE_START = 25; // heatmap calendar leads with the previous month's this-day-onward, matching pay-cycle timing rather than the calendar month
+
+const LOG_DESCRIPTION_MAX_LENGTH = 15; // optional per-entry description on a running-total log entry — kept short so it fits inline with the expense name in the log
 
 // 16-colour palette used for expense category headers and pie chart slices.
 // Two properties are deliberately engineered, not just picked by eye:
@@ -512,11 +514,14 @@ function normalizeRow(row) {
     mode: row.mode ?? 'fully-paid',
     runningTotal: row.runningTotal ?? '',
     // log: append-only spend history for running-total rows — each entry is
-    // {timestamp, amount}, amount being the delta applied at that point
-    // (can be negative for a correction). paidAt: when a fully-paid row was
-    // last marked paid (null if currently unpaid) — a single fact, not a
-    // history, since only the most recent paid transition represents an
-    // actual spend (see updateRow()).
+    // {timestamp, amount, description?}, amount being the delta applied at
+    // that point (can be negative for a correction), description an optional
+    // free-text note up to LOG_DESCRIPTION_MAX_LENGTH chars (only ever set by
+    // the Add to Total dialog — a direct edit to the field has no dialog to
+    // enter one, so its own log entries carry no description). paidAt: when
+    // a fully-paid row was last marked paid (null if currently unpaid) — a
+    // single fact, not a history, since only the most recent paid transition
+    // represents an actual spend (see updateRow()).
     // Copied rather than referenced — rows can be cloned from
     // DEFAULT_CATEGORIES/a template (see loadData()), and log is the first
     // array-valued row field; without a copy here, every row cloned from the
@@ -1617,16 +1622,28 @@ document.addEventListener('click', (event) => {
   event.preventDefault();
 }, true);
 
-// Centered modal (not a bottom sheet — see openCenterModal) with a numeric
-// entry field, replacing the native prompt() so mobile browsers show a
-// numeric keypad instead of the full keyboard. inputmode="decimal" is set
-// alongside type="number" because some mobile/PWA browsers pick the on-screen
+// Centered modal (not a bottom sheet — see openCenterModal) with an amount
+// field plus an optional short description, replacing the native prompt()
+// so mobile browsers show the right on-screen keyboard for each: amount is
+// type="number" with inputmode="decimal" (some mobile/PWA browsers pick the
 // keyboard from inputmode rather than type, and fall back to the full
-// keyboard without it.
+// keyboard without it) for a numeric keypad, description is plain type="text"
+// for the full keyboard. Amount is required; description is capped at
+// LOG_DESCRIPTION_MAX_LENGTH characters via maxlength (submitAddToTotal()
+// also enforces this server-side, in case that gets bypassed e.g. by paste).
 function openAddToTotalModal(catIdx, rowIdx) {
   closeSheet();
   const html = `
     <div class="modal-title">Add to Total</div>
+    <input
+      type="text"
+      id="addToTotalDescriptionInput"
+      class="sheet-form-input"
+      placeholder="Description (optional)"
+      maxlength="${LOG_DESCRIPTION_MAX_LENGTH}"
+      aria-label="Optional short description for this entry"
+      onkeydown="if(event.key==='Enter'){submitAddToTotal(${catIdx},${rowIdx})}"
+    />
     <input
       type="number"
       inputmode="decimal"
@@ -1647,9 +1664,14 @@ function openAddToTotalModal(catIdx, rowIdx) {
 }
 
 function submitAddToTotal(catIdx, rowIdx) {
-  const input = document.getElementById('addToTotalInput');
-  const amount = parseFloat(input.value);
+  const amountInput = document.getElementById('addToTotalInput');
+  const amount = parseFloat(amountInput.value);
   if (isNaN(amount)) { closeCenterModal(); return; }
+
+  // Optional — trimmed and capped at LOG_DESCRIPTION_MAX_LENGTH regardless of
+  // what got past the input's own maxlength (see comment on openAddToTotalModal)
+  const descriptionInput = document.getElementById('addToTotalDescriptionInput');
+  const description = (descriptionInput.value || '').trim().slice(0, LOG_DESCRIPTION_MAX_LENGTH);
 
   const data = loadData(currentYear, currentMonth);
   const row = data[catIdx].rows[rowIdx];
@@ -1661,7 +1683,9 @@ function submitAddToTotal(catIdx, rowIdx) {
     const d = loadData(currentYear, currentMonth);
     const target = d[catIdx].rows[rowIdx];
     target.runningTotal = String((parseFloat(target.runningTotal) || 0) + amount);
-    target.log.push({ timestamp: new Date().toISOString(), amount });
+    const entry = { timestamp: new Date().toISOString(), amount };
+    if (description) entry.description = description;
+    target.log.push(entry);
     saveData(currentYear, currentMonth, d);
     renderBudget();
   });
@@ -1752,11 +1776,12 @@ function getSpendEvents(data) {
         (row.log || []).forEach(entry => {
           const amount = parseFloat(entry.amount);
           if (!isNaN(amount) && typeof entry.timestamp === 'string') {
-            events.push({ category: cat.name, colour: cat.colour, expense, timestamp: entry.timestamp, amount });
+            const description = typeof entry.description === 'string' ? entry.description : '';
+            events.push({ category: cat.name, colour: cat.colour, expense, timestamp: entry.timestamp, amount, description });
           }
         });
       } else if (row.paid && typeof row.paidAt === 'string') {
-        events.push({ category: cat.name, colour: cat.colour, expense, timestamp: row.paidAt, amount: parseFloat(row.cost) || 0 });
+        events.push({ category: cat.name, colour: cat.colour, expense, timestamp: row.paidAt, amount: parseFloat(row.cost) || 0, description: '' });
       }
     });
   });
@@ -1930,7 +1955,7 @@ function renderHeatmapDaySummary(events, prevYear, prevMonth) {
       return `
         <div class="log-entry">
           <div class="log-entry-main">
-            <span class="log-entry-expense">${escapeHtml(e.expense)}</span>
+            <span class="log-entry-expense">${escapeHtml(e.expense)}${e.description ? ` — ${escapeHtml(e.description)}` : ''}</span>
             <span class="log-entry-category">${escapeHtml(e.category)}</span>
           </div>
           <div class="log-entry-side">
@@ -1972,7 +1997,7 @@ function openExpenseLog() {
         return `
           <div class="log-entry">
             <div class="log-entry-main">
-              <span class="log-entry-expense">${escapeHtml(e.expense)}</span>
+              <span class="log-entry-expense">${escapeHtml(e.expense)}${e.description ? ` — ${escapeHtml(e.description)}` : ''}</span>
               <span class="log-entry-category">${escapeHtml(e.category)}</span>
             </div>
             <div class="log-entry-side">
@@ -2364,13 +2389,12 @@ function updateRow(catIdx, rowIdx, field, value) {
     // Track when a spend actually happened, for the heatmap/expense log.
     // Fully-paid rows aren't an event history — paidAt is a single fact
     // (when the row was most recently marked paid), so it's just
-    // overwritten/cleared rather than appended to. Editing cost while
-    // already paid counts as a fresh spend happening now — the old date
-    // would otherwise be shown against a since-changed amount.
+    // overwritten/cleared rather than appended to. Only the checkbox itself
+    // sets or clears it; editing cost while already paid leaves the existing
+    // paidAt alone, since a cost correction to an already-logged spend isn't
+    // a new payment event.
     if (field === 'paid') {
       target.paidAt = value ? new Date().toISOString() : null;
-    } else if (field === 'cost' && mode === 'fully-paid' && target.paid) {
-      target.paidAt = new Date().toISOString();
     } else if (field === 'runningTotal' && mode === 'running-total') {
       // Direct edits to the field (as opposed to the "Add to Total" modal —
       // see submitAddToTotal()) still represent a spend event; log the

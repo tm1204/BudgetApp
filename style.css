@@ -837,8 +837,9 @@ main { padding: 16px; }
   cursor: pointer;
 }
 
-/* Add to Total — numeric amount entry sheet (type="number" gets mobile
-   browsers to show a numeric keypad instead of the full keyboard) */
+/* Add to Total — description + numeric amount entry sheet (type="number"
+   gets mobile browsers to show a numeric keypad instead of the full
+   keyboard for the amount field, while description stays plain text) */
 .sheet-form { padding: 4px 0 8px; }
 
 .sheet-form-input {
@@ -852,6 +853,8 @@ main { padding: 16px; }
   color: #1c1c1e;
   background: #fff;
 }
+
+.sheet-form-input + .sheet-form-input { margin-top: 10px; }
 
 .sheet-form-actions {
   display: flex;

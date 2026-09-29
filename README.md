@@ -63,7 +63,7 @@ The app appears on the home screen and launches full-screen like a native app, s
 - **Add rows** — per category via the "+ Add row" button
 - **Row actions menu** — each row uses a **vertical ellipsis** menu instead of a direct remove button
 - **Row menu order** — Add to Total (Running Total rows only), Switch to Fully Paid/Running Total, Remove Row; Remove Row is always last
-- **Add to Total** — available from the row menu on Running Total rows only; opens a centered numeric-entry dialog (a proper number field, so mobile shows a numeric keypad rather than the full keyboard) and adds the entered amount to the row's existing running total, instead of having to work out and retype the new figure by hand
+- **Add to Total** — available from the row menu on Running Total rows only; opens a centered dialog with an optional description field (plain text, full keyboard, capped at 15 characters) and a required amount field (a proper number field, so mobile shows a numeric keypad rather than the full keyboard), and adds the entered amount to the row's existing running total, instead of having to work out and retype the new figure by hand
 - **Switch Row to Running Total** — available from the row menu (not offered on Income rows — see Running Total Logic below)
 - **Switch Row to Fully Paid** — available from the row menu
 - **Reorder rows** — press and hold the row's ⋮ button (the same one that opens its menu — a short tap still does that) until it lifts, then drag it up or down within its category and release
@@ -91,15 +91,16 @@ Each row can operate in one of two modes:
 - For a budgeted expense that gets paid off in parts rather than all at once
 - Switched on via row menu (not offered on Income rows, which are always Fully Paid)
 - Replaces the checkbox with a numeric input
-- **Add to Total** — row menu option that opens a centered numeric-entry dialog and adds the entered amount to the existing running total, for each part payment as it happens
+- **Add to Total** — row menu option that opens a centered dialog with an optional description field and a required amount field, and adds the entered amount to the existing running total, for each part payment as it happens
 - **Budget / Remaining impact** = greater of:
   - budgeted cost
   - entered running total
 - **In Account impact** = entered running total amount
 - If running total exceeds budgeted cost, the input text turns red
 - Every change to the running total — via Add to Total or by editing the field directly — is logged with a timestamp and feeds the Spending Heatmap/Expense Log below; switching a row away from Running Total clears that row's log
+- **Log entry description** — Add to Total's description field is optional, capped at 15 characters, and (when given) displays inline with the expense name in the Expense Log and heatmap day-summary panel, e.g. an expense named "Week 1" with description "Weekend trip" shows as "Week 1 — Weekend trip". A direct edit to the running total field (rather than via Add to Total) still logs a delta but carries no description, since there's no dialog to enter one in that flow
 
-Fully Paid rows don't keep a history of every tick — only a single **paidAt** timestamp, set when the checkbox is ticked and cleared when unticked. Editing the cost while the row is already ticked paid re-stamps paidAt to now, since a changed amount is a new spend, not a retroactive correction to the original one.
+Fully Paid rows don't keep a history of every tick — only a single **paidAt** timestamp, set when the checkbox is ticked and cleared when unticked. Editing the cost while the row is already ticked paid leaves the existing paidAt untouched — only the checkbox itself sets or clears it, since a cost correction to an already-logged spend isn't a new payment event.
 
 Ticking the checkbox is a single tap, no confirmation. Unticking it asks for confirmation first (a native "Mark as unpaid?" prompt) — the checkbox sits right next to the row's ⋮ button, so an accidental tap there would otherwise silently wipe the paidAt fact for that row. Declining leaves the row ticked and paidAt untouched.
 
@@ -390,6 +391,7 @@ Every change to this app — however small — follows the same process:
 | v5.12 | Unticking a Fully Paid row's checkbox now asks for confirmation first, instead of clearing `paid`/`paidAt` immediately — the checkbox sits right next to the row's ⋮ button, so an accidental tap there could silently wipe that row's spend timestamp for the month. Ticking stays a single tap, since a stray tick has no destructive effect. Uses the same native `confirm()` dialog already used for deleting a category, so the confirming tap lands on a fixed OS-rendered button away from the checkbox/⋮ cluster, rather than a second tap in the same spot that the same accidental gesture could also trigger |
 | v5.13 | Standardized the User Manual's and FAQ's Fully Paid vs Running Total explanations on one worked example (a R100 monthly coffee budget spent over multiple cups) instead of ad hoc wording in each spot. Spending heatmap now leads with the previous month's 25th onward as dimmed lead-in cells, matching a pay-cycle window rather than a strict calendar month — those lead cells only light up for spend actually logged on them, nothing is backfilled or assumed for days with nothing recorded. The heatmap's "All Categories" heat colour also changed from blue to green, matching the app's other positive/green accents |
 | v5.13.1 | Bug fix — v5.13's lead days were sourced from the previous month's own separate stored data, which double-counted any ordinary previous-month spend (it already renders on that month's own heatmap) and, the other way round, silently dropped an expense genuinely budgeted under the month being viewed but paid a few days early (e.g. rent due the 1st, paid on the 28th so it clears the landlord's account in time — that row lives in the current month's own data, not the previous month's). Lead days are now read from the current month's own data only, bucketed by date, with no cross-month data load at all. Lead days also only appear when the current month's own data actually has something dated in that window (previously the block always rendered, empty, whenever the heatmap showed at all), and now share one intensity scale with the rest of the month instead of scaling separately |
+| v5.14 | Editing a Fully Paid row's cost no longer re-stamps `paidAt` — only the checkbox itself sets or clears it now, so a cost correction to an already-logged spend doesn't get misread as a new payment happening today. "Add to Total" gains an optional description field (plain text, full keyboard, capped at 15 characters) alongside the existing required amount field (numeric keypad); when given, it displays inline with the row's expense name in the Expense Log and heatmap day-summary panel, e.g. "Week 1 — Weekend trip". A direct edit to the running total field (rather than via the dialog) still logs a delta as before, with no description, since there's no dialog to enter one in that flow |
 
 ---
 
