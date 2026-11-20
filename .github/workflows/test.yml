@@ -1,0 +1,21 @@
+# Runs the test suite on every push and pull request, so a change that breaks
+# existing behaviour is caught before it is released.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # The tests load app.js into a bare vm context — no dependencies to install
+      - run: node --test tests/app.test.js

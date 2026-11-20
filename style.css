@@ -7,9 +7,35 @@ body {
   color: #1c1c1e;
 }
 
+/* Status colours used as TEXT on the light page. The brighter system shades
+   (#34c759 / #ff3b30 / #0a84ff) only reach about 2.2:1 to 3.6:1 against white,
+   well under the 4.5:1 needed for the 12px figures they colour; these reach
+   5.4:1 or better. Dark mode (bottom of this file) switches back to the
+   bright shades, which are the readable ones on a dark surface. */
+:root {
+  --text-positive: #1f7a36;
+  --text-negative: #d70015;
+  --text-accent: #0066cc;
+}
+
 /* Stops iOS rubber-banding at the page edges from fighting the auto-scroll
    that runs while a category/row is being dragged near the top or bottom */
 html, body { overscroll-behavior: contain; }
+
+/* Set while a bottom sheet or dialog is open (see syncScrollLock in app.js):
+   the page behind must not scroll, whether from a swipe on the dimmed
+   overlay or from a scroll that runs past the end of a long sheet */
+html.popup-open, html.popup-open body { overflow: hidden; }
+
+/* Read by screen readers only */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
 /* Sticky header wrapper — header + month tabs stay fixed while scrolling */
 .sticky-wrap {
@@ -86,7 +112,16 @@ header select {
   font-size: 14px;
   cursor: pointer;
   white-space: nowrap;
+  min-height: 44px;
+  /* Contains the tab's screen-reader-only "(protected)" label. That label is
+     absolutely positioned; without a positioned parent inside this scrolling
+     strip it escapes the strip's clipping, and a tab that is scrolled out of
+     view on the right then widens the whole page (seen as the app loading
+     zoomed out at about half size). */
+  position: relative;
 }
+
+.tab-lock { vertical-align: -1px; margin-left: 2px; }
 
 .month-tabs button.active {
   color: #fff;
@@ -127,6 +162,15 @@ main { padding: 16px; }
   min-width: 0;
 }
 
+/* A long category name is cut with an ellipsis instead of pushing the total
+   and the ⋮ button out of the header */
+.section-header-left span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .section-header-right {
   display: flex;
   align-items: center;
@@ -155,6 +199,18 @@ main { padding: 16px; }
   padding: 0 4px;
   line-height: 1;
   flex-shrink: 0;
+  position: relative;
+}
+
+/* Same idea as .row-ellipsis-btn::before further down: the glyph stays the
+   size it is, the touch target grows into the header's own padding */
+.ellipsis-btn::before {
+  content: '';
+  position: absolute;
+  top: -12px;
+  bottom: -12px;
+  left: -10px;
+  right: -14px;
 }
 
 /* Row grid — shared between column headers and data rows for alignment */
@@ -258,13 +314,23 @@ main { padding: 16px; }
   text-overflow: ellipsis;
 }
 
-.remaining.negative { color: #ff3b30; }
-.remaining.positive { color: #34c759; }
+.remaining.negative { color: var(--text-negative); }
+.remaining.positive { color: var(--text-positive); }
 
 .cell-paid {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+}
+
+/* The paid checkbox's cell is a <label> stretched over the row's full height
+   (the negative margin reaches into the row's own 5px padding), so the tap
+   target is the whole 50px column rather than the 17px box */
+.cell-paid-tap {
+  align-self: stretch;
+  margin: -5px 0;
+  padding: 5px 0;
+  cursor: pointer;
 }
 
 .cell-paid input[type="checkbox"] {
@@ -289,13 +355,14 @@ main { padding: 16px; }
 }
 
 .running-total-input.over-budget {
-  color: #ff3b30;
+  color: var(--text-negative);
 }
 
 .cell-remove {
   display: flex;
   align-items: center;
   justify-content: center;
+  align-self: stretch;
 }
 
 .remove-btn {
@@ -318,6 +385,8 @@ main { padding: 16px; }
   padding: 0;
   line-height: 1;
   position: relative;
+  width: 100%;
+  height: 100%;
 }
 
 /* Long-press-to-drag starts here, but the visible glyph is tiny (18px,
@@ -342,10 +411,11 @@ main { padding: 16px; }
 .add-btn {
   display: block;
   width: 100%;
+  min-height: 44px;
   padding: 10px 14px;
   background: none;
   border: none;
-  color: #0a84ff;
+  color: var(--text-accent);
   font-size: 14px;
   cursor: pointer;
   text-align: left;
@@ -361,7 +431,7 @@ main { padding: 16px; }
   background: white;
   border: 2px dashed #c7c7cc;
   border-radius: 12px;
-  color: #0a84ff;
+  color: var(--text-accent);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -478,6 +548,7 @@ main { padding: 16px; }
 .heatmap-filter {
   flex: 1;
   min-width: 0;
+  min-height: 40px;
   padding: 8px 10px;
   font-size: 13px;
   border: 1px solid #d1d1d6;
@@ -490,6 +561,7 @@ main { padding: 16px; }
   display: flex;
   align-items: center;
   gap: 6px;
+  min-height: 40px;
   padding: 8px 12px;
   border: none;
   border-radius: 8px;
@@ -593,7 +665,7 @@ main { padding: 16px; }
   color: #1c1c1e;
 }
 
-.log-entry-amount.negative { color: #ff3b30; }
+.log-entry-amount.negative { color: var(--text-negative); }
 
 .log-entry-date {
   font-size: 12px;
@@ -631,12 +703,35 @@ main { padding: 16px; }
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease, transform 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
 .toast.show {
   opacity: 1;
   transform: translate(-50%, 0);
 }
+
+/* Only a toast that is showing a button (e.g. "Undo") takes taps — a plain
+   one must never block whatever is underneath it */
+.toast.show.has-action { pointer-events: auto; text-align: left; }
+
+.toast-action {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #64b5ff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  /* padding makes the target a full 44px tall; the negative margin stops
+     that making the toast itself any taller */
+  padding: 14px 6px;
+  margin: -14px -6px -14px 0;
+}
+
+.toast-action[hidden] { display: none; }
 
 /* Bottom Sheet — shared component for all popup menus */
 .sheet-overlay {
@@ -645,6 +740,8 @@ main { padding: 16px; }
   inset: 0;
   background: rgba(0,0,0,0.4);
   z-index: 100;
+  /* a swipe that starts on the dimmed area must not scroll the page behind it */
+  touch-action: none;
 }
 
 .sheet-overlay.open { display: block; }
@@ -658,10 +755,21 @@ main { padding: 16px; }
   border-radius: 20px 20px 0 0;
   padding: 16px;
   z-index: 101;
+  /* The extra bottom padding keeps the last line clear of the phone's
+     gesture bar / home indicator (zero where the browser reports no inset). */
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   transition: bottom 0.3s ease;
   max-height: 80vh;
   overflow-y: auto;
+  /* a scroll that reaches the end of the sheet stops there instead of
+     carrying on into the page underneath */
+  overscroll-behavior: contain;
 }
+
+/* Both popups take focus when they open (for screen readers and keyboards);
+   that is not something to draw a ring around */
+.bottom-sheet:focus,
+.center-modal:focus { outline: none; }
 
 .bottom-sheet.open { bottom: 0; }
 
@@ -675,6 +783,9 @@ main { padding: 16px; }
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(320px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: white;
   border-radius: 16px;
   padding: 20px;
@@ -691,13 +802,30 @@ main { padding: 16px; }
   margin-bottom: 16px;
 }
 
+/* Grab handle at the top of every sheet: swipe down on it (or on the sheet's
+   header) to close. touch-action: none hands the gesture to the app's own
+   pointer handling instead of the browser's scrolling — see the swipe code
+   next to openSheet() in app.js. */
 .sheet-handle {
   width: 40px;
   height: 4px;
   background: #c7c7cc;
   border-radius: 2px;
-  margin: 0 auto 16px auto;
+  margin: 0 auto 12px auto;
+  position: relative;
 }
+
+.sheet-handle::before {
+  content: '';
+  position: absolute;
+  top: -16px;
+  bottom: -12px;
+  left: -60px;
+  right: -60px;
+}
+
+.sheet-handle,
+.sheet-header { touch-action: none; }
 
 .sheet-title {
   font-size: 16px;
@@ -724,7 +852,7 @@ main { padding: 16px; }
 
 .sheet-option:last-child { border-bottom: none; }
 .sheet-option.disabled { color: #c7c7cc; cursor: default; }
-.sheet-option.destructive { color: #ff3b30; }
+.sheet-option.destructive { color: var(--text-negative); }
 
 .sheet-option-icon { font-size: 20px; width: 28px; text-align: center; }
 
@@ -750,6 +878,10 @@ main { padding: 16px; }
   font-weight: 700;
   color: #1c1c1e;
   text-align: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sheet-back-btn {
@@ -763,6 +895,14 @@ main { padding: 16px; }
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+}
+
+/* 32px button, 44px touch target */
+.sheet-back-btn::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
 }
 
 .sheet-back-placeholder {
@@ -819,6 +959,18 @@ main { padding: 16px; }
   border-radius: 50%;
   border: 3px solid transparent;
   cursor: pointer;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+}
+
+/* The touch target reaches halfway into the 10px gap on every side, so
+   neighbouring swatches never overlap */
+.colour-swatch::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
 }
 
 .colour-swatch.selected { border-color: #1c1c1e; }
@@ -874,7 +1026,23 @@ main { padding: 16px; }
   color: #1c1c1e;
 }
 
-.sheet-form-btn.primary { background: #007aff; color: #fff; }
+/* #0066cc rather than the brighter #007aff: white text on it reaches 5.6:1 */
+.sheet-form-btn.primary { background: #0066cc; color: #fff; }
+.sheet-form-btn.primary.destructive { background: #d70015; }
+
+/* In-app confirm dialog text; pre-line keeps a deliberate line break */
+.dialog-message {
+  text-align: center;
+  white-space: pre-line;
+}
+
+/* Inline validation message under a form field; takes no space while empty */
+.form-error {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-negative);
+}
+.form-error:empty { display: none; }
 
 /* Permissions menu — persistent storage status row */
 .permission-status {
@@ -897,7 +1065,7 @@ main { padding: 16px; }
 .permission-badge.denied  { background: #ffe5e5; color: #d70015; }
 
 .permission-request-btn {
-  background: #0a84ff;
+  background: #0066cc;
   color: white;
   border: none;
   padding: 6px 12px;
@@ -915,7 +1083,16 @@ main { padding: 16px; }
    colours (green/red/blue) are Apple system colours already designed to
    read on both light and dark backgrounds. */
 @media (prefers-color-scheme: dark) {
+  :root {
+    --text-positive: #34c759;
+    --text-negative: #ff3b30;
+    --text-accent: #0a84ff;
+  }
+
   body { background: #000; color: #f2f2f7; }
+
+  /* The toast's own #1c1c1e is exactly the dark-mode card colour */
+  .toast { background: #3a3a3c; }
 
   .section,
   .chart-container,

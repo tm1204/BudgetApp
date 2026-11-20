@@ -3,11 +3,23 @@
 // copy of the app compares itself against. Keep in sync with version.json's
 // "version" field and the numeric suffix of sw.js's CACHE_NAME (see README
 // "Versioning & Updates" for the full release checklist).
-const APP_VERSION = '5.14';
+const APP_VERSION = '5.15.1';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const CURRENT_YEAR = new Date().getFullYear();
-const YEARS = Array.from({length: 5}, (_, i) => CURRENT_YEAR + i); // current year + 4 ahead
+
+// Years offered by the year picker: the current year + 4 ahead, plus every
+// year that already has saved budget data. Without the second part, last
+// year's months (December included) became unreachable the moment the
+// calendar rolled over to January, even though the data was still stored.
+function getYears() {
+  const years = new Set(Array.from({ length: 5 }, (_, i) => CURRENT_YEAR + i));
+  for (let i = 0; i < localStorage.length; i++) {
+    const match = /^budget_(\d{4})_\d{1,2}$/.exec(localStorage.key(i) || '');
+    if (match) years.add(Number(match[1]));
+  }
+  return Array.from(years).sort((a, b) => a - b);
+}
 
 const INCOME_COLOUR = '#e5e5ea'; // Income's default fixed colour, independently selectable from expense palette
 const UNDO_LIMIT = 10; // maximum undo/redo steps retained
@@ -85,7 +97,7 @@ let selectedHeatmapDay = null;
 // keeps the user on whatever month they were looking at when they last
 // closed or minimized the app, rather than always resetting to today's month
 const savedView = loadLastViewedMonth();
-if (savedView && YEARS.includes(savedView.year) && savedView.month >= 0 && savedView.month <= 11) {
+if (savedView && getYears().includes(savedView.year) && savedView.month >= 0 && savedView.month <= 11) {
   currentYear = savedView.year;
   currentMonth = savedView.month;
 }
@@ -122,25 +134,48 @@ const ICON_BACK = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" s
 
 const ICON_LOG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`;
 
+const ICON_COLOUR = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.9 2-2 0-.5-.2-1-.5-1.4-.3-.4-.5-.8-.5-1.3 0-1 .9-1.8 2-1.8h2.2A3.8 3.8 0 0 0 21 10.7C21 6.4 17 3 12 3z"/><path d="M7.5 11.5h.01"/><path d="M10.5 7.5h.01"/><path d="M15 8h.01"/></svg>`;
+
+const ICON_DELETE = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>`;
+
+const ICON_ADD = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>`;
+
+const ICON_SWITCH = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14"/><path d="M15 5l3 3-3 3"/><path d="M20 16H6"/><path d="M9 13l-3 3 3 3"/></svg>`;
+
+// Small padlock shown on a protected month's tab (sized to sit inline with the tab text)
+const ICON_LOCK_SMALL = `<svg class="tab-lock" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
+
+// Names read out for the colour picker's swatches, in PALETTE order
+const PALETTE_NAMES = [
+  'Lime', 'Blue', 'Coral red', 'Teal', 'Brown', 'Slate', 'Orange', 'Steel blue',
+  'Amber', 'Indigo', 'Yellow', 'Purple', 'Sage', 'Pink', 'Emerald', 'Rose'
+];
+
+const CATEGORY_NAME_MAX_LENGTH = 30; // longer names push the category total and ⋮ button out of the header
+
 // ── Update Prompt / Reload Coordination ──────────────────────────────────────
 // Both the service worker's own lifecycle events and the version.json check
 // below can independently notice the same deploy — this flag makes sure only
-// one confirm() dialog is ever shown per detected update. Declining resets it
+// one "Update available" dialog is ever shown per detected update. Declining resets it
 // so a later check (next visibility change, etc.) can prompt again.
 let updatePromptShown = false;
 
 function promptForReload(newVersion, waitingWorker) {
   if (updatePromptShown) return;
+  // Never replace a menu or dialog the user is in the middle of — the next
+  // check (every time the app becomes visible again) will ask instead
+  if (anyPopupOpen()) return;
   updatePromptShown = true;
   const label = newVersion ? ` (${newVersion})` : '';
-  if (confirm(`A new version of BudgetApp${label} is available. Refresh now?`)) {
-    reloadWithLatestServiceWorker(waitingWorker);
-  } else {
-    updatePromptShown = false;
-  }
+  askConfirm(`A new version of BudgetApp${label} is available. Refresh now?`, {
+    title: 'Update available', confirmLabel: 'Refresh', cancelLabel: 'Later'
+  }).then(accepted => {
+    if (accepted) reloadWithLatestServiceWorker(waitingWorker);
+    else updatePromptShown = false;
+  });
 }
 
-// Reloading immediately after confirm() used to race the service worker in
+// Reloading immediately after the user confirmed used to race the service worker in
 // two different ways. First: sw.js calls skipWaiting()/clients.claim() on
 // its own schedule, so the new worker could take control of the still-open
 // page — serving a mix of old in-memory JS and new cached assets — before
@@ -159,6 +194,10 @@ function promptForReload(newVersion, waitingWorker) {
 // check hadn't even started yet, for one to start) before reloading, rather
 // than treating "no waiting worker yet" as "nothing to activate".
 function reloadWithLatestServiceWorker(waitingWorker) {
+  // No service worker support (some private-browsing modes, plain http):
+  // there is nothing to activate, a plain reload is all that can be done
+  if (!('serviceWorker' in navigator)) { window.location.reload(); return; }
+
   const activateAndReload = (worker) => {
     let reloaded = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -221,6 +260,7 @@ function reloadWithLatestServiceWorker(waitingWorker) {
 // sw.js file, which was previously blocking update detection on iOS Safari
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+    if (!reg) return; // registration blocked (e.g. by browser policy): the app still works, just without offline caching
     reg.addEventListener('updatefound', () => {
       // reg.installing can already be null here if the worker advanced to
       // 'waiting' before this handler ran — fall back to reg.waiting so the
@@ -235,6 +275,9 @@ if ('serviceWorker' in navigator) {
     });
     // Force an immediate update check right after registration
     reg.update();
+  }).catch(() => {
+    // Registration refused (insecure context, storage blocked): same as above,
+    // the app simply runs without offline caching
   });
 }
 
@@ -242,7 +285,11 @@ if ('serviceWorker' in navigator) {
 // (e.g. switching back from another app on iPhone)
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    navigator.serviceWorker.getRegistration().then(reg => { if (reg) reg.update(); });
+    // 'serviceWorker' is missing altogether in some browsers/modes — unguarded,
+    // that threw here and skipped the two calls below as well
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then(reg => { if (reg) reg.update(); });
+    }
     checkForAppUpdate();
     alignActiveMonthTabDeferred();
   }
@@ -346,9 +393,37 @@ function safeSetItem(key, value) {
     localStorage.setItem(key, value);
     return true;
   } catch (err) {
+    // Budget data always wins over undo history — both live in the same small
+    // storage quota, so make room by dropping history before giving up
+    if (isRelevantKey(key) && freeUndoSpaceFor(key, value)) return true;
     console.error(`BudgetApp: failed to write "${key}" to localStorage`, err);
     return false;
   }
+}
+
+// Drops redo history, then undo history oldest-first, retrying the write
+// after each step. Returns true as soon as the write goes through.
+function freeUndoSpaceFor(key, value) {
+  const tryWrite = () => {
+    try { localStorage.setItem(key, value); return true; } catch { return false; }
+  };
+  if (localStorage.getItem('__redoStack') !== null) {
+    localStorage.removeItem('__redoStack');
+    if (tryWrite()) return true;
+  }
+  const stack = getUndoStack();
+  while (stack.length > 0) {
+    stack.shift();
+    try { localStorage.setItem('__undoStack', JSON.stringify(stack)); } catch { break; }
+    if (tryWrite()) return true;
+  }
+  return false;
+}
+
+// Money is added up as floats, and 10.10 + 20.20 is 30.299999999999997 —
+// round to cents wherever a sum is stored or shown in an editable field
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
 }
 
 // Only accepts strict 6-digit hex colours. Category colour is interpolated
@@ -390,26 +465,32 @@ function loadLastViewedMonth() {
 }
 
 // ── Undo / Redo ──────────────────────────────────────────────────────────────
-// Snapshot-based undo system — captures the entire relevant localStorage state
-// before every mutating action, rather than tracking diffs. Simpler and more
-// reliable at the cost of slightly larger stored snapshots.
+// Change-based undo: each entry records, for just the storage keys an action
+// actually changed, the value each key held beforehand (null = the key did
+// not exist yet). Up to v5.14 every step stored a copy of EVERY month instead
+// — after "Set as Template" that is about 60 months per step, ten steps deep,
+// in the same small localStorage quota the budget itself lives in. Each edit
+// rewrote megabytes, and a long-lived budget would eventually hit the quota
+// and fail to save real edits. Entries written by those versions
+// ({desc, snapshot}) are still understood — see entryChanges().
 
 function getUndoStack() {
-  const raw = localStorage.getItem('__undoStack');
-  return safeParseJSON(raw, []);
+  const stack = safeParseJSON(localStorage.getItem('__undoStack'), []);
+  return Array.isArray(stack) ? stack : [];
 }
 function setUndoStack(stack) {
   return safeSetItem('__undoStack', JSON.stringify(stack));
 }
 function getRedoStack() {
-  const raw = localStorage.getItem('__redoStack');
-  return safeParseJSON(raw, []);
+  const stack = safeParseJSON(localStorage.getItem('__redoStack'), []);
+  return Array.isArray(stack) ? stack : [];
 }
 function setRedoStack(stack) {
   return safeSetItem('__redoStack', JSON.stringify(stack));
 }
 
-// Captures every budget/protection key currently in localStorage
+// Every budget/protection key currently in localStorage. Only ever held in
+// memory (to work out what an action changed), never written back as a whole.
 function snapshotState() {
   const snap = {};
   for (let i = 0; i < localStorage.length; i++) {
@@ -419,37 +500,68 @@ function snapshotState() {
   return snap;
 }
 
-// Wipes all current budget/protection keys and replaces them with a snapshot.
-// Returns false if any key failed to write, so the caller can warn the user
-// that the restored state may be incomplete rather than assuming success.
-function restoreState(snapshot) {
-  const toRemove = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (isRelevantKey(key)) toRemove.push(key);
-  }
-  toRemove.forEach(k => localStorage.removeItem(k));
-  let allOk = true;
-  Object.keys(snapshot).forEach(k => { if (!safeSetItem(k, snapshot[k])) allOk = false; });
-  return allOk;
+// The values `before` held for every key that differs in `after` — exactly
+// what has to be written back to undo whatever happened in between
+function diffSnapshots(before, after) {
+  const changes = {};
+  Object.keys(after).forEach(key => {
+    if (before[key] !== after[key]) changes[key] = key in before ? before[key] : null;
+  });
+  Object.keys(before).forEach(key => {
+    if (!(key in after)) changes[key] = before[key];
+  });
+  return changes;
 }
 
-// Must be called BEFORE a mutation happens — records the state as it was
-// immediately prior to the action about to be performed.
-// Returns false if the snapshot couldn't be stored (e.g. storage quota full),
-// so the caller can still apply the mutation but warn that it can't be undone.
-function recordUndo(description) {
-  const stack = getUndoStack();
-  stack.push({ desc: description, snapshot: snapshotState() });
+// An entry's changes, whichever format it was saved in. A pre-v5.15 entry
+// holds a full snapshot; the equivalent change set is "everything that
+// differs from that snapshot right now".
+function entryChanges(entry) {
+  if (entry && entry.changes && typeof entry.changes === 'object') return entry.changes;
+  if (entry && entry.snapshot && typeof entry.snapshot === 'object') return diffSnapshots(entry.snapshot, snapshotState());
+  return {};
+}
+
+// Writes a change set back to storage. Returns the inverse change set (what
+// those keys held just before, for the opposite stack) and whether every
+// write succeeded, so the caller can warn that a restore may be incomplete.
+function applyChanges(changes) {
+  const inverse = {};
+  let ok = true;
+  Object.keys(changes).forEach(key => {
+    if (!isRelevantKey(key)) return; // never touch unrelated keys, whatever the stored entry says
+    inverse[key] = localStorage.getItem(key);
+    if (changes[key] === null || changes[key] === undefined) localStorage.removeItem(key);
+    else if (!safeSetItem(key, changes[key])) ok = false;
+  });
+  return { inverse, ok };
+}
+
+// Appends an entry to the undo or redo stack, capped at UNDO_LIMIT. If the
+// stack does not fit in storage, the oldest entries are dropped until it does.
+// Returns false only if not even the new entry on its own could be stored.
+function pushHistoryEntry(stackKey, entry) {
+  const stored = safeParseJSON(localStorage.getItem(stackKey), []);
+  const stack = Array.isArray(stored) ? stored : [];
+  stack.push(entry);
   while (stack.length > UNDO_LIMIT) stack.shift(); // cap at UNDO_LIMIT, drop oldest
-  const recorded = setUndoStack(stack);
-  setRedoStack([]); // any new action invalidates the redo stack (standard behaviour)
-  return recorded;
+  while (stack.length > 0) {
+    try {
+      localStorage.setItem(stackKey, JSON.stringify(stack));
+      return true;
+    } catch {
+      stack.shift();
+    }
+  }
+  console.error(`BudgetApp: no room in localStorage for "${stackKey}"`);
+  safeSetItem(stackKey, '[]');
+  return false;
 }
 
 // Wraps a mutating function with automatic undo recording. The mutation
-// always runs even if the undo snapshot couldn't be saved — losing undo
-// history is far less harmful than silently dropping the user's edit.
+// always runs first and is what gets stored first — losing undo history is
+// far less harmful than silently dropping the user's edit. Returns true
+// once the mutation has run.
 //
 // Undo/redo is a single stack shared across every month, so the action an
 // undo/redo actually reverts can belong to a different month than whichever
@@ -460,11 +572,18 @@ function recordUndo(description) {
 // be misleading rather than clarifying.
 function withUndo(description, mutateFn, { scoped = true } = {}) {
   const fullDescription = scoped ? `${description} (${MONTHS[currentMonth]} ${currentYear})` : description;
-  const recorded = recordUndo(fullDescription);
+  const before = snapshotState();
   mutateFn();
+  const changes = diffSnapshots(before, snapshotState());
+  // Nothing actually changed (e.g. the save itself failed, or the value
+  // typed was the one already stored) — there is nothing to undo
+  if (Object.keys(changes).length === 0) return true;
+  const recorded = pushHistoryEntry('__undoStack', { desc: fullDescription, changes });
+  setRedoStack([]); // any new action invalidates the redo stack (standard behaviour)
   if (!recorded) {
     showToast('Your change was saved, but device storage is too full to keep an Undo record for it. Export a backup soon and consider freeing up storage.');
   }
+  return true;
 }
 
 function undoLastAction() {
@@ -473,17 +592,16 @@ function undoLastAction() {
   const entry = undoStack.pop();
   setUndoStack(undoStack);
 
-  // Push current state onto redo stack before restoring the older snapshot
-  const redoStack = getRedoStack();
-  redoStack.push({ desc: entry.desc, snapshot: snapshotState() });
-  while (redoStack.length > UNDO_LIMIT) redoStack.shift();
-  setRedoStack(redoStack);
+  // Applying the entry hands back what those keys held just before, which is
+  // exactly what Redo needs to reapply the action
+  const { inverse, ok } = applyChanges(entryChanges(entry));
+  pushHistoryEntry('__redoStack', { desc: entry.desc, changes: inverse });
 
-  const restored = restoreState(entry.snapshot);
   closeSheet();
+  renderYearSelect();
   renderMonthTabs();
   renderBudget();
-  showToast(restored ? `Undone: ${entry.desc}` : `Undone: ${entry.desc} (storage is full — restore may be incomplete)`);
+  showToast(ok ? `Undone: ${entry.desc}` : `Undone: ${entry.desc} (storage is full — restore may be incomplete)`);
 }
 
 function redoLastAction() {
@@ -492,17 +610,14 @@ function redoLastAction() {
   const entry = redoStack.pop();
   setRedoStack(redoStack);
 
-  // Push current state back onto undo stack before reapplying
-  const undoStack = getUndoStack();
-  undoStack.push({ desc: entry.desc, snapshot: snapshotState() });
-  while (undoStack.length > UNDO_LIMIT) undoStack.shift();
-  setUndoStack(undoStack);
+  const { inverse, ok } = applyChanges(entryChanges(entry));
+  pushHistoryEntry('__undoStack', { desc: entry.desc, changes: inverse });
 
-  const restored = restoreState(entry.snapshot);
   closeSheet();
+  renderYearSelect();
   renderMonthTabs();
   renderBudget();
-  showToast(restored ? `Redone: ${entry.desc}` : `Redone: ${entry.desc} (storage is full — restore may be incomplete)`);
+  showToast(ok ? `Redone: ${entry.desc}` : `Redone: ${entry.desc} (storage is full — restore may be incomplete)`);
 }
 
 // ── Data ────────────────────────────────────────────────────────────────────
@@ -584,8 +699,11 @@ function saveData(year, month, data) {
 }
 
 // ── Template Propagation ─────────────────────────────────────────────────────
-function setAsTemplate() {
-  if (!confirm(`Copy ${MONTHS[currentMonth]} ${currentYear} to all unprotected following months?`)) return;
+async function setAsTemplate() {
+  const accepted = await askConfirm(`Copy ${MONTHS[currentMonth]} ${currentYear} to all unprotected following months?`, {
+    title: 'Set as Template', confirmLabel: 'Copy'
+  });
+  if (!accepted) return;
   // Month/year is appended automatically by withUndo() now — no need to
   // repeat it here
   withUndo('Set as Template', () => {
@@ -651,10 +769,87 @@ function toggleProtection() {
 // ── Bottom Sheet (shared popup component) ────────────────────────────────────
 // centerModal shares the same overlay (below) — closeSheet()/closeCenterModal()
 // each only drop the overlay once the other popup isn't also open.
+const SHEET_DISMISS_PX = 90; // a downward swipe on the sheet's handle/header past this closes it
+
+// Whatever had focus before the first popup opened, handed focus back on close
+let focusBeforePopup = null;
+
+function anyPopupOpen() {
+  return document.getElementById('bottomSheet').classList.contains('open') ||
+    document.getElementById('centerModal').classList.contains('open');
+}
+
+// While a sheet or dialog is open the page behind it must not move: the
+// overlay only dims the page, it never stopped it scrolling, and a scroll
+// that reached the end of a long sheet (e.g. the expense log) carried on
+// into the page underneath. The class locks the page (see style.css); the
+// touchmove guard below covers browsers that ignore overflow:hidden on the
+// root element.
+function syncScrollLock() {
+  const root = document.documentElement;
+  if (root && root.classList) root.classList.toggle('popup-open', anyPopupOpen());
+}
+
+document.addEventListener('touchmove', (event) => {
+  if (!anyPopupOpen()) return;
+  const target = event.target;
+  if (!target || !target.closest) return;
+  if (target.closest('input, textarea, select')) return; // moving the text cursor, not scrolling
+  const scroller = target.closest('.bottom-sheet, .center-modal');
+  // Outside any popup, or inside one with nothing to scroll: the gesture
+  // would scroll the page itself. A popup that can scroll handles its own
+  // ends via overscroll-behavior.
+  if (!scroller || scroller.scrollHeight <= scroller.clientHeight) event.preventDefault();
+}, { passive: false });
+
+function rememberFocus() {
+  if (anyPopupOpen()) return; // already inside a popup — keep the original element
+  focusBeforePopup = document.activeElement || null;
+}
+
+// Focus goes back to where it was so keyboard and screen-reader users are not
+// dropped at the top of the page. Text fields are skipped on purpose: giving
+// one focus again would reopen the on-screen keyboard every time a menu closes.
+function restoreFocus() {
+  if (anyPopupOpen()) return;
+  const el = focusBeforePopup;
+  focusBeforePopup = null;
+  if (el && el.isConnected && typeof el.focus === 'function' && !/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName || '')) {
+    try { el.focus({ preventScroll: true }); } catch {}
+  }
+}
+
+function focusPopup(el) {
+  if (el && typeof el.focus === 'function') {
+    try { el.focus({ preventScroll: true }); } catch {}
+  }
+}
+
+// Shared header for every bottom sheet: grab handle, back button, title.
+// `title` must already be HTML-safe. The sheet is labelled by #sheetTitle,
+// so a screen reader announces the actual menu rather than one fixed name.
+function sheetHeader(title, backAction = 'closeSheet()') {
+  return `
+    <div class="sheet-handle" aria-hidden="true"></div>
+    <div class="sheet-header">
+      <button class="sheet-back-btn" onclick="${backAction}" aria-label="Back">
+        <span class="sheet-option-icon">${ICON_BACK}</span>
+      </button>
+      <div class="sheet-title-inline" id="sheetTitle">${title}</div>
+      <div class="sheet-back-placeholder"></div>
+    </div>`;
+}
+
 function openSheet(html) {
-  document.getElementById('bottomSheet').innerHTML = html;
-  document.getElementById('bottomSheet').classList.add('open');
+  rememberFocus();
+  const sheet = document.getElementById('bottomSheet');
+  sheet.innerHTML = html;
+  if (sheet.style) { sheet.style.transform = ''; sheet.style.transition = ''; }
+  sheet.scrollTop = 0;
+  sheet.classList.add('open');
   document.getElementById('sheetOverlay').classList.add('open');
+  syncScrollLock();
+  focusPopup(sheet);
 }
 
 function closeSheet() {
@@ -662,23 +857,153 @@ function closeSheet() {
   if (!document.getElementById('centerModal').classList.contains('open')) {
     document.getElementById('sheetOverlay').classList.remove('open');
   }
+  syncScrollLock();
+  restoreFocus();
 }
+
+// Swipe down on the sheet's handle or header to close it. Only from there:
+// the body of a long sheet has to keep scrolling normally.
+document.addEventListener('pointerdown', (event) => {
+  const target = event.target;
+  if (!target || !target.closest) return;
+  const grip = target.closest('.sheet-handle, .sheet-header');
+  if (!grip || target.closest('button')) return;
+
+  const sheet = document.getElementById('bottomSheet');
+  const pointerId = event.pointerId;
+  const startY = event.clientY;
+  let distance = 0;
+
+  const onMove = (moveEvent) => {
+    if (moveEvent.pointerId !== pointerId) return;
+    distance = Math.max(0, moveEvent.clientY - startY);
+    sheet.style.transition = 'none';
+    sheet.style.transform = `translateY(${distance}px)`;
+  };
+
+  const onEnd = (endEvent) => {
+    if (endEvent.pointerId !== pointerId) return;
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onEnd);
+    document.removeEventListener('pointercancel', onEnd);
+    if (endEvent.type === 'pointerup' && distance > SHEET_DISMISS_PX) {
+      // Leave the sheet where the finger let go and let the normal close
+      // animation carry it the rest of the way down
+      sheet.style.transition = '';
+      closeSheet();
+      setTimeout(() => { if (!sheet.classList.contains('open')) sheet.style.transform = ''; }, 300);
+    } else {
+      sheet.style.transition = 'transform 0.2s ease';
+      sheet.style.transform = '';
+      setTimeout(() => { sheet.style.transition = ''; }, 200);
+    }
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onEnd);
+  document.addEventListener('pointercancel', onEnd);
+});
 
 // ── Centered Modal (shared popup component) ───────────────────────────────────
 // For short, single-purpose entry dialogs (e.g. "Add to Total") where a
 // bottom sheet — which reads as a menu — would be an odd fit for one input
-// and two buttons.
-function openCenterModal(html) {
-  document.getElementById('centerModal').innerHTML = html;
-  document.getElementById('centerModal').classList.add('open');
+// and two buttons. `kind` names what is showing ('form' or 'dialog')
+// so asynchronous code can tell whether its own modal is still the open one.
+let centerModalKind = null;
+
+function openCenterModal(html, kind = 'form') {
+  cancelPendingDialog(); // a dialog being replaced counts as cancelled
+  rememberFocus();
+  const modal = document.getElementById('centerModal');
+  modal.innerHTML = html;
+  modal.classList.add('open');
+  centerModalKind = kind;
   document.getElementById('sheetOverlay').classList.add('open');
+  syncScrollLock();
+  focusPopup(modal);
 }
 
 function closeCenterModal() {
   document.getElementById('centerModal').classList.remove('open');
+  centerModalKind = null;
   if (!document.getElementById('bottomSheet').classList.contains('open')) {
     document.getElementById('sheetOverlay').classList.remove('open');
   }
+  syncScrollLock();
+  cancelPendingDialog(); // closed by overlay tap, Escape or the back button
+  restoreFocus();
+}
+
+// ── In-app confirm / text-entry dialogs ───────────────────────────────────────
+// Replace the browser's own confirm()/prompt() boxes, which look like part of
+// the browser (or, in the Android app, a bare system dialog) rather than the
+// app. Both return a Promise: askConfirm resolves true/false, askPrompt
+// resolves the entered text, or null if cancelled. Closing the modal any
+// other way (overlay tap, Escape, Android back) counts as cancel.
+let pendingDialog = null; // { type: 'confirm' | 'prompt', resolve } while one is open
+
+function cancelPendingDialog() {
+  const dialog = pendingDialog;
+  if (!dialog) return;
+  pendingDialog = null;
+  dialog.resolve(dialog.type === 'prompt' ? null : false);
+}
+
+function settleDialog(confirmed) {
+  const dialog = pendingDialog;
+  if (!dialog) return;
+  pendingDialog = null;
+  let result = !!confirmed;
+  if (dialog.type === 'prompt') {
+    const input = document.getElementById('dialogInput');
+    result = confirmed ? String((input && input.value) || '') : null;
+  }
+  closeCenterModal();
+  dialog.resolve(result);
+}
+
+function askConfirm(message, { title = '', confirmLabel = 'OK', cancelLabel = 'Cancel', destructive = false } = {}) {
+  return new Promise(resolve => {
+    closeSheet();
+    openCenterModal(`
+      ${title ? `<div class="modal-title" id="modalTitle">${escapeHtml(title)}</div>` : ''}
+      <div class="help-text dialog-message"${title ? '' : ' id="modalTitle"'}>${escapeHtml(message)}</div>
+      <div class="sheet-form-actions">
+        <button class="sheet-form-btn" onclick="settleDialog(false)">${escapeHtml(cancelLabel)}</button>
+        <button class="sheet-form-btn primary${destructive ? ' destructive' : ''}" onclick="settleDialog(true)">${escapeHtml(confirmLabel)}</button>
+      </div>
+    `, 'dialog');
+    pendingDialog = { type: 'confirm', resolve };
+  });
+}
+
+function askPrompt(title, { value = '', placeholder = '', maxLength = null, confirmLabel = 'Save' } = {}) {
+  return new Promise(resolve => {
+    closeSheet();
+    openCenterModal(`
+      <div class="modal-title" id="modalTitle">${escapeHtml(title)}</div>
+      <input
+        type="text"
+        id="dialogInput"
+        class="sheet-form-input"
+        value="${escapeHtml(value)}"
+        placeholder="${escapeHtml(placeholder)}"
+        ${maxLength ? `maxlength="${Number(maxLength)}"` : ''}
+        aria-label="${escapeHtml(title)}"
+        onkeydown="if(event.key==='Enter'){settleDialog(true)}"
+      />
+      <div class="sheet-form-actions">
+        <button class="sheet-form-btn" onclick="settleDialog(false)">Cancel</button>
+        <button class="sheet-form-btn primary" onclick="settleDialog(true)">${escapeHtml(confirmLabel)}</button>
+      </div>
+    `, 'dialog');
+    pendingDialog = { type: 'prompt', resolve };
+    const input = document.getElementById('dialogInput');
+    if (input && typeof input.focus === 'function') {
+      input.focus();
+      if (typeof input.select === 'function') input.select();
+    }
+  });
 }
 
 // Tapping the shared overlay closes whichever popup is open
@@ -699,17 +1024,55 @@ document.addEventListener('keydown', (e) => {
 // ── Toast ────────────────────────────────────────────────────────────────────
 // Replaces the native alert dialog for routine feedback (undo/redo, import
 // results, save warnings) — a blocking dialog on every single undo/redo was
-// the most repeated friction point in the app. Destructive confirmations
-// and text entry still use the native confirm/prompt dialogs for now.
+// the most repeated friction point in the app. Confirmations and text entry
+// use the in-app dialogs (askConfirm/askPrompt) further up.
 let toastTimer = null;
+let toastAction = null; // what the toast's button does, if it is showing one
 
-function showToast(message) {
+// `options` is either a duration in ms, or { durationMs, actionLabel,
+// onAction } — with onAction the toast shows a button (e.g. "Undo") and stays
+// tappable. Without an explicit duration, longer messages stay up longer: at
+// a fixed 2.5s the two-sentence storage warnings were gone before they could
+// be read.
+function showToast(message, options = {}) {
+  const opts = typeof options === 'number' ? { durationMs: options } : (options || {});
+  const el = document.getElementById('toast');
+  const textEl = document.getElementById('toastText');
+  const actionEl = document.getElementById('toastAction');
+  if (!el || !textEl) return;
+  textEl.textContent = message;
+  toastAction = typeof opts.onAction === 'function' ? opts.onAction : null;
+  if (actionEl) {
+    actionEl.textContent = toastAction ? (opts.actionLabel || 'Undo') : '';
+    actionEl.hidden = !toastAction;
+  }
+  el.classList.toggle('has-action', !!toastAction);
+  el.classList.add('show');
+  const durationMs = opts.durationMs ||
+    Math.min(8000, Math.max(toastAction ? 5000 : 2500, String(message).length * 55));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, durationMs);
+}
+
+function hideToast() {
   const el = document.getElementById('toast');
   if (!el) return;
-  el.textContent = message;
-  el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+  el.classList.remove('show');
+  el.classList.remove('has-action');
+  toastAction = null;
+}
+
+function runToastAction() {
+  const action = toastAction;
+  hideToast();
+  if (action) action();
+}
+
+// Confirmation for an action that just happened, with one-tap Undo — the
+// only other way back is the main menu, three taps away
+function showUndoToast(message) {
+  showToast(message, { actionLabel: 'Undo', onAction: undoLastAction });
 }
 
 // ── Main Menu ────────────────────────────────────────────────────────────────
@@ -720,13 +1083,7 @@ function openMainMenu() {
   const protectedNow = isProtected(currentYear, currentMonth);
 
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="closeSheet()">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">BudgetApp Menu</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
+    ${sheetHeader(`BudgetApp Menu`)}
 
     <button class="sheet-option" onclick="openExportMenu()">
       <span class="sheet-option-icon">${ICON_EXPORT}</span> Export
@@ -745,13 +1102,13 @@ function openMainMenu() {
       Current Month ${protectedNow ? 'Protected' : 'Unprotected'}
     </button>
 
-    <button class="sheet-option ${undoCount === 0 ? 'disabled' : ''}"
+    <button class="sheet-option ${undoCount === 0 ? 'disabled' : ''}" ${undoCount === 0 ? 'disabled' : ''}
       onclick="${undoCount === 0 ? '' : 'undoLastAction()'}">
       <span class="sheet-option-icon">${ICON_UNDO}</span> Undo
       <span class="sheet-option-sub">${undoCount > 0 ? undoCount : ''}</span>
     </button>
 
-    <button class="sheet-option ${redoCount === 0 ? 'disabled' : ''}"
+    <button class="sheet-option ${redoCount === 0 ? 'disabled' : ''}" ${redoCount === 0 ? 'disabled' : ''}
       onclick="${redoCount === 0 ? '' : 'redoLastAction()'}">
       <span class="sheet-option-icon">${ICON_REDO}</span> Redo
       <span class="sheet-option-sub">${redoCount > 0 ? redoCount : ''}</span>
@@ -773,13 +1130,7 @@ function openMainMenu() {
 // ── Export Menu ──────────────────────────────────────────────────────────────
 function openExportMenu() {
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="openMainMenu()">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">Export</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
+    ${sheetHeader(`Export`, 'openMainMenu()')}
 
     <button class="sheet-option" onclick="exportCurrentMonth()">
       <span class="sheet-option-icon">${ICON_EXPORT}</span> Export Current Month As Template
@@ -849,13 +1200,7 @@ let pendingImportType = null; // tracks which import flow triggered the file pic
 
 function openImportMenu() {
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="openMainMenu()">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">Import</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
+    ${sheetHeader(`Import`, 'openMainMenu()')}
 
     <button class="sheet-option" onclick="triggerImport('month')">
       <span class="sheet-option-icon">${ICON_IMPORT}</span> Import a Single Month Template
@@ -876,55 +1221,93 @@ function triggerImport(type) {
   document.getElementById('importFileInput').click();
 }
 
+// A month's data is a non-empty list of category objects. (An empty list
+// would load as a month with no Income category at all.)
+function isValidMonthData(data) {
+  return Array.isArray(data) && data.length > 0 &&
+    data.every(cat => cat && typeof cat === 'object' && !Array.isArray(cat));
+}
+
+// History files hold budget_YYYY_M month lists and protected_YYYY_M flags
+function isValidImportEntry(key, value) {
+  if (/^budget_\d{4}_(\d|1[01])$/.test(key)) return isValidMonthData(value);
+  if (/^protected_\d{4}_(\d|1[01])$/.test(key)) return typeof value === 'boolean';
+  return false;
+}
+
 // Handles the file selected via the hidden <input type="file">
 function handleImportFile(event) {
   const file = event.target.files[0];
   if (!file) return;
 
+  // Captured now: the in-app confirm dialogs below are asynchronous, and the
+  // module-level value is reset as soon as this handler finishes
+  const importType = pendingImportType;
   const reader = new FileReader();
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     try {
       const parsed = JSON.parse(e.target.result);
 
-      if (pendingImportType === 'month') {
-        if (parsed.type !== 'month' || !parsed.data) {
+      if (importType === 'month') {
+        // The shape is checked before anything is saved: a file with the
+        // right "type" but the wrong contents used to be written as-is, which
+        // left the month loading as blank defaults under an "Import complete"
+        if (parsed.type !== 'month' || !isValidMonthData(parsed.data)) {
           showToast('This file is not a valid single month template.');
           return;
         }
-        if (!confirm(`Import this template into ${MONTHS[currentMonth]} ${currentYear}? This will overwrite existing data for this month.`)) return;
+        const accepted = await askConfirm(
+          `Import this template into ${MONTHS[currentMonth]} ${currentYear}? This will overwrite existing data for this month.`,
+          { title: 'Import template', confirmLabel: 'Import' }
+        );
+        if (!accepted) return;
 
+        let saved = false;
         withUndo('Imported template', () => {
-          saveData(currentYear, currentMonth, parsed.data);
-          if (typeof parsed.protected === 'boolean') setProtected(currentYear, currentMonth, parsed.protected);
+          saved = saveData(currentYear, currentMonth, parsed.data);
+          if (saved && typeof parsed.protected === 'boolean') setProtected(currentYear, currentMonth, parsed.protected);
           renderBudget();
         });
-        showToast('Import complete.');
+        // saveData() explains a failure itself
+        if (saved) showToast('Import complete.');
       }
 
-      if (pendingImportType === 'history') {
-        if (parsed.type !== 'history' || !parsed.entries) {
+      if (importType === 'history') {
+        if (parsed.type !== 'history' || !parsed.entries || typeof parsed.entries !== 'object' || Array.isArray(parsed.entries)) {
           showToast('This file is not a valid budget history export.');
           return;
         }
-        // Only budget_*/protected_* keys are ever imported — never trust the
-        // file to write arbitrary localStorage keys (e.g. __undoStack, or an
-        // unrelated key from a tampered/foreign export)
-        const importableKeys = Object.keys(parsed.entries).filter(isRelevantKey);
-        const skippedCount = Object.keys(parsed.entries).length - importableKeys.length;
-        if (!confirm(`Import full history? This will overwrite ${importableKeys.length} saved month(s)/setting(s).`)) return;
+        // Only well-formed budget_*/protected_* entries are ever imported —
+        // never trust the file to write arbitrary localStorage keys (e.g.
+        // __undoStack, or an unrelated key from a tampered/foreign export),
+        // or a month whose contents the app could not load
+        const allKeys = Object.keys(parsed.entries);
+        const importableKeys = allKeys.filter(key => isValidImportEntry(key, parsed.entries[key]));
+        const skippedCount = allKeys.length - importableKeys.length;
+        if (importableKeys.length === 0) {
+          showToast('This file has nothing that can be imported.');
+          return;
+        }
+        const accepted = await askConfirm(
+          `Import full history? This will overwrite ${importableKeys.length} saved month(s)/setting(s).`,
+          { title: 'Import history', confirmLabel: 'Import' }
+        );
+        if (!accepted) return;
 
         let failCount = 0;
         // scoped:false — this can touch months across every year, so
         // naming just the currently-viewed one would be misleading
-        withUndo('Imported full budget history', () => {
+        const ran = withUndo('Imported full budget history', () => {
           importableKeys.forEach(key => {
             if (!safeSetItem(key, JSON.stringify(parsed.entries[key]))) failCount++;
           });
+          renderYearSelect(); // the file may hold years that were not on the list yet
           renderMonthTabs();
           renderBudget();
         }, { scoped: false });
+        if (!ran) return;
         showToast(
-          'Import complete.' +
+          (failCount < importableKeys.length ? 'Import complete.' : 'Import failed.') +
           (skippedCount > 0 ? ` ${skippedCount} unrecognised entr${skippedCount !== 1 ? 'ies' : 'y'} in the file were skipped.` : '') +
           (failCount > 0 ? ` ${failCount} entr${failCount !== 1 ? 'ies' : 'y'} could not be saved — device storage is full.` : '')
         );
@@ -949,13 +1332,7 @@ function handleImportFile(event) {
 // ── Permissions Menu ─────────────────────────────────────────────────────────
 function openPermissionsMenu() {
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="openMainMenu()">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">App Permissions</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
+    ${sheetHeader(`App Permissions`, 'openMainMenu()')}
 
     <div id="permissionStatusRow" class="permission-status">
       <span>Persistent Storage</span>
@@ -996,13 +1373,7 @@ function requestPermissionFromMenu() {
 // ── Help Menu ────────────────────────────────────────────────────────────────
 function openHelpMenu() {
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="openMainMenu()">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">Help</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
+    ${sheetHeader(`Help`, 'openMainMenu()')}
 
     <button class="sheet-option" onclick="openUserManual()">
       <span class="sheet-option-icon">${ICON_MANUAL}</span> User Manual
@@ -1019,19 +1390,13 @@ function openHelpMenu() {
 
 function openUserManual() {
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="openHelpMenu()">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">User Manual</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
+    ${sheetHeader(`User Manual`, 'openHelpMenu()')}
 
     <div class="help-heading">Getting started</div>
-    <div class="help-text">Every month has its own budget. Switch between months using the tabs, and between years using the year selector. Changes save automatically as soon as you leave a field — there is no separate save step.</div>
+    <div class="help-text">Every month has its own budget. Switch between months using the tabs, and between years using the year selector, which lists this year, the next four, and every earlier year you have budget data for. Changes save automatically as soon as you leave a field — there is no separate save step.</div>
 
     <div class="help-heading">Categories</div>
-    <div class="help-text">Your budget is grouped into categories, like Home, Food or Fuel. Income sits fixed at the top and tracks money coming in rather than money going out. Tap a category's ⋮ button to rename it, change its colour, or delete it, or press and hold that same button to drag the category to a new position. Income can only have its colour changed, since it always stays first and can't be moved, renamed or deleted.</div>
+    <div class="help-text">Your budget is grouped into categories, like Home, Food or Fuel. Income sits fixed at the top and tracks money coming in rather than money going out. Tap a category's ⋮ button to rename it, change its colour, or delete it (two categories can't share a name), or press and hold that same button to drag the category to a new position. Income can only have its colour changed, since it always stays first and can't be moved, renamed or deleted.</div>
 
     <div class="help-heading">Rows</div>
     <div class="help-text">Each category holds rows for individual expenses (or, in Income, sources of income). Use "+ Add row" to add one, and a row's ⋮ button to remove it or switch how it's tracked — press and hold that same button to drag the row to a new position within its category.</div>
@@ -1043,7 +1408,10 @@ function openUserManual() {
     <div class="help-text">Income is the total of everything in the Income category. Total Expenses is the sum of every other category's costs. Budgeted Balance is Income minus Total Expenses — what you planned. In Account reflects what's actually happened so far: costs from ticked Fully Paid rows, plus current Running Total balances.</div>
 
     <div class="help-heading">Undo &amp; Redo</div>
-    <div class="help-text">Most changes can be undone from the main menu, for up to the last 10 actions. Redo brings an undone change back, as long as you haven't made a new change since.</div>
+    <div class="help-text">Most changes can be undone from the main menu, for up to the last 10 actions. After you delete a category or remove or move a row, the message that appears has its own Undo button. Redo brings an undone change back, as long as you haven't made a new change since.</div>
+
+    <div class="help-heading">Menus</div>
+    <div class="help-text">Close any menu with its back arrow, by tapping outside it, or by swiping down on the bar at its top.</div>
 
     <div class="help-heading">Set Current Month as Template</div>
     <div class="help-text">Copies the month you're viewing forward to every later month across the next few years — amounts and row names carry over, but Paid ticks and Running Totals reset. Any month you've protected is always skipped.</div>
@@ -1063,7 +1431,8 @@ function openFAQ() {
   const faqs = [
     ["Why can't I rename, reorder or delete the Income category?", "Income always stays first so the app can reliably tell it apart from expense categories. You can still change its colour."],
     ["How do I reorder categories or rows?", "Press and hold its ⋮ button (the same one that opens its menu) until it lifts, then drag it to a new position and release. A quick tap still opens the menu as usual."],
-    ["What happens if my device storage is full?", "The app tells you via a message instead of silently losing your change, and an Undo record may not be kept for it. Export a backup and free up some space."],
+    ["What happens if my device storage is full?", "Your budget always comes first: older Undo steps are dropped to make room for a change before the change itself is ever at risk. If there is still no room, the app tells you via a message instead of silently losing your change. Export a backup and free up some space."],
+    ["Where did last year go?", "Nowhere. The year selector lists every year you have budget data for, alongside this year and the next four."],
     ["What's the difference between Fully Paid and Running Total rows?", "Fully Paid is a simple paid/not-paid checkbox for a one-off cost. Running Total is for an expense you're paying off in parts rather than all at once — like a R100 monthly coffee budget, where the running total climbs each time you buy a cup instead of a single paid/unpaid tick."],
     ["Does Set as Template change past months?", "No — it only copies forward from the month you're viewing to later months, and never touches months you've locked with Protect Month."],
     ["How many undos do I get?", "The last 10 actions. Once you go past that, the oldest ones drop off."],
@@ -1071,13 +1440,7 @@ function openFAQ() {
   ];
 
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="openHelpMenu()">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">FAQ</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
+    ${sheetHeader(`FAQ`, 'openHelpMenu()')}
 
     ${faqs.map(([q, a]) => `
     <div class="faq-item">
@@ -1102,13 +1465,7 @@ function openCategoryMenu(catIdx) {
   // Reordering itself is done by long-pressing and dragging the category
   // card, not from this menu — see the "Drag to Reorder" section below.
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="closeSheet()">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">${escapeHtml(cat.name)}</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
+    ${sheetHeader(`${escapeHtml(cat.name)}`)}
 
     ${isInc ? '' : `
     <button class="sheet-option" onclick="sheetRename(${catIdx})">
@@ -1116,12 +1473,12 @@ function openCategoryMenu(catIdx) {
     </button>`}
 
     <button class="sheet-option" onclick="sheetColour(${catIdx})">
-      <span class="sheet-option-icon">🎨</span> Change Colour
+      <span class="sheet-option-icon">${ICON_COLOUR}</span> Change Colour
     </button>
 
     ${isInc ? '' : `
     <button class="sheet-option destructive" onclick="sheetDelete(${catIdx})">
-      <span class="sheet-option-icon">🗑️</span> Delete
+      <span class="sheet-option-icon">${ICON_DELETE}</span> Delete
     </button>`}
 
     <div class="sheet-version-line">Version ${APP_VERSION}</div>
@@ -1129,40 +1486,51 @@ function openCategoryMenu(catIdx) {
   openSheet(html);
 }
 
-function sheetRename(catIdx) {
+// Trims and caps a typed category name; returns '' if nothing usable is left
+function cleanCategoryName(name) {
+  return String(name ?? '').trim().slice(0, CATEGORY_NAME_MAX_LENGTH).trim();
+}
+
+// Two categories with the same name are indistinguishable in the heatmap
+// filter and the expense log (both match by name), so a new or renamed
+// category has to be unique. exceptIdx is the category being renamed.
+function categoryNameTaken(data, name, exceptIdx = -1) {
+  const wanted = name.toLowerCase();
+  return data.some((cat, idx) => idx !== exceptIdx && String(cat.name).trim().toLowerCase() === wanted);
+}
+
+async function sheetRename(catIdx) {
   const data = loadData(currentYear, currentMonth);
   const oldName = data[catIdx].name;
-  const name = prompt('Rename category:', oldName);
-  if (name && name.trim()) {
-    withUndo(`Renamed "${oldName}" to "${name.trim()}"`, () => {
-      const d = loadData(currentYear, currentMonth);
-      d[catIdx].name = name.trim();
-      saveData(currentYear, currentMonth, d);
-      renderBudget();
-    });
+  const entered = await askPrompt('Rename category', { value: oldName, maxLength: CATEGORY_NAME_MAX_LENGTH });
+  const name = cleanCategoryName(entered);
+  if (!name || name === oldName) return;
+  if (categoryNameTaken(loadData(currentYear, currentMonth), name, catIdx)) {
+    showToast(`There is already a category called "${name}".`);
+    return;
   }
-  closeSheet();
+  withUndo(`Renamed "${oldName}" to "${name}"`, () => {
+    const d = loadData(currentYear, currentMonth);
+    d[catIdx].name = name;
+    saveData(currentYear, currentMonth, d);
+    renderBudget();
+  });
 }
 
 function sheetColour(catIdx) {
   const data    = loadData(currentYear, currentMonth);
   const current = data[catIdx].colour;
 
-  const swatches = PALETTE.map(c => `
-    <div class="colour-swatch ${c === current ? 'selected' : ''}"
+  const swatches = PALETTE.map((c, i) => `
+    <button class="colour-swatch ${c === current ? 'selected' : ''}"
       style="background:${c}"
+      aria-label="${PALETTE_NAMES[i]}${c === current ? ' (current colour)' : ''}"
       onclick="applyColour(${catIdx},'${c}')">
-    </div>
+    </button>
   `).join('');
 
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="openCategoryMenu(${catIdx})">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">Choose Colour</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
+    ${sheetHeader(`Choose Colour`, `openCategoryMenu(${catIdx})`)}
 
     <div class="colour-grid">${swatches}</div>
 
@@ -1193,39 +1561,50 @@ function reorderCategories(fromIdx, toIdx) {
   if (data[fromIdx].isIncome || toIdx === 0) return;
 
   const name = data[fromIdx].name;
+  let saved = false;
   withUndo(`Moved "${name}" category`, () => {
     const d = loadData(currentYear, currentMonth);
     const [moved] = d.splice(fromIdx, 1);
     d.splice(toIdx, 0, moved);
     // Final safety net — re-enforce isIncome strictly by index after any move
     d.forEach((cat, idx) => { cat.isIncome = idx === 0; });
-    saveData(currentYear, currentMonth, d);
+    saved = saveData(currentYear, currentMonth, d);
     renderBudget();
   });
+  if (saved) showUndoToast(`Moved "${name}".`);
 }
 
-function sheetDelete(catIdx) {
+async function sheetDelete(catIdx) {
   const data = loadData(currentYear, currentMonth);
   if (data[catIdx].isIncome) { closeSheet(); return; }
   const name = data[catIdx].name;
-  if (!confirm(`Delete "${name}"? You can restore it using Undo.`)) { closeSheet(); return; }
+  const accepted = await askConfirm(`Delete "${name}" and all its rows? You can restore it using Undo.`, {
+    title: 'Delete category', confirmLabel: 'Delete', destructive: true
+  });
+  if (!accepted) return;
 
+  let saved = false;
   withUndo(`Deleted category "${name}"`, () => {
     const d = loadData(currentYear, currentMonth);
     d.splice(catIdx, 1);
-    saveData(currentYear, currentMonth, d);
+    saved = saveData(currentYear, currentMonth, d);
     renderBudget();
   });
-  closeSheet();
+  if (saved) showUndoToast(`Deleted "${name}".`);
 }
 
-function addCategory() {
-  const name = prompt('New category name:');
-  if (!name || !name.trim()) return;
-  withUndo(`Added category "${name.trim()}"`, () => {
+async function addCategory() {
+  const entered = await askPrompt('New category', { placeholder: 'Category name', maxLength: CATEGORY_NAME_MAX_LENGTH, confirmLabel: 'Add' });
+  const name = cleanCategoryName(entered);
+  if (!name) return;
+  if (categoryNameTaken(loadData(currentYear, currentMonth), name)) {
+    showToast(`There is already a category called "${name}".`);
+    return;
+  }
+  withUndo(`Added category "${name}"`, () => {
     const data   = loadData(currentYear, currentMonth);
     const colour = getNextColour(data);
-    data.push({ name: name.trim(), colour, isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] });
+    data.push({ name, colour, isIncome: false, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '', log: [], paidAt: null }] });
     saveData(currentYear, currentMonth, data);
     renderBudget();
   });
@@ -1247,26 +1626,20 @@ function openRowMenu(catIdx, rowIdx) {
     : 'Switch Row to Running Total';
 
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="closeSheet()">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">Row Options</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
+    ${sheetHeader(`Row Options`)}
 
     ${mode === 'running-total' && !category.isIncome ? `
     <button class="sheet-option" onclick="openAddToTotalModal(${catIdx},${rowIdx})">
-      <span class="sheet-option-icon">➕</span> Add to Total
+      <span class="sheet-option-icon">${ICON_ADD}</span> Add to Total
     </button>` : ''}
 
     ${category.isIncome ? '' : `
     <button class="sheet-option" onclick="switchRowMode(${catIdx},${rowIdx})">
-      <span class="sheet-option-icon">⇄</span> ${switchLabel}
+      <span class="sheet-option-icon">${ICON_SWITCH}</span> ${switchLabel}
     </button>`}
 
     <button class="sheet-option" onclick="removeRow(${catIdx},${rowIdx})">
-      <span class="sheet-option-icon">🗑️</span> Remove Row
+      <span class="sheet-option-icon">${ICON_DELETE}</span> Remove Row
     </button>
 
     <div class="sheet-version-line">Version ${APP_VERSION}</div>
@@ -1314,13 +1687,15 @@ function reorderRows(catIdx, fromIdx, toIdx) {
   if (fromIdx === toIdx) return;
   const data = loadData(currentYear, currentMonth);
   const rowName = data[catIdx].rows[fromIdx].expense || '(unnamed)';
+  let saved = false;
   withUndo(`Moved row "${rowName}"`, () => {
     const d = loadData(currentYear, currentMonth);
     const [moved] = d[catIdx].rows.splice(fromIdx, 1);
     d[catIdx].rows.splice(toIdx, 0, moved);
-    saveData(currentYear, currentMonth, d);
+    saved = saveData(currentYear, currentMonth, d);
     renderBudget();
   });
+  if (saved) showUndoToast(`Moved "${rowName}".`);
 }
 
 // ── Drag to Reorder ───────────────────────────────────────────────────────────
@@ -1634,7 +2009,7 @@ document.addEventListener('click', (event) => {
 function openAddToTotalModal(catIdx, rowIdx) {
   closeSheet();
   const html = `
-    <div class="modal-title">Add to Total</div>
+    <div class="modal-title" id="modalTitle">Add to Total</div>
     <input
       type="text"
       id="addToTotalDescriptionInput"
@@ -1651,22 +2026,33 @@ function openAddToTotalModal(catIdx, rowIdx) {
       class="sheet-form-input"
       placeholder="Amount"
       step="0.01"
-      autofocus
       aria-label="Amount to add to running total"
       onkeydown="if(event.key==='Enter'){submitAddToTotal(${catIdx},${rowIdx})}"
     />
+    <div class="form-error" id="addToTotalError" role="alert"></div>
     <div class="sheet-form-actions">
       <button class="sheet-form-btn" onclick="closeCenterModal()">Cancel</button>
       <button class="sheet-form-btn primary" onclick="submitAddToTotal(${catIdx},${rowIdx})">Add</button>
     </div>
   `;
   openCenterModal(html);
+  // The autofocus attribute does nothing on markup inserted after page load,
+  // so the amount field (the one thing every entry needs) is focused by hand
+  const amountInput = document.getElementById('addToTotalInput');
+  if (amountInput && typeof amountInput.focus === 'function') amountInput.focus();
 }
 
 function submitAddToTotal(catIdx, rowIdx) {
   const amountInput = document.getElementById('addToTotalInput');
-  const amount = parseFloat(amountInput.value);
-  if (isNaN(amount)) { closeCenterModal(); return; }
+  const amount = roundMoney(parseFloat(amountInput.value));
+  // An empty, invalid or zero amount used to close the dialog without a word
+  // (zero even went into the log as a spend) — say what is missing instead
+  if (isNaN(parseFloat(amountInput.value)) || amount === 0) {
+    const errorEl = document.getElementById('addToTotalError');
+    if (errorEl) errorEl.textContent = 'Enter an amount (use a minus sign to correct a mistake).';
+    if (typeof amountInput.focus === 'function') amountInput.focus();
+    return;
+  }
 
   // Optional — trimmed and capped at LOG_DESCRIPTION_MAX_LENGTH regardless of
   // what got past the input's own maxlength (see comment on openAddToTotalModal)
@@ -1682,7 +2068,7 @@ function submitAddToTotal(catIdx, rowIdx) {
   withUndo(`Added ${amount < 0 ? '-' : ''}${fmt(amount)} to running total for "${rowName}"`, () => {
     const d = loadData(currentYear, currentMonth);
     const target = d[catIdx].rows[rowIdx];
-    target.runningTotal = String((parseFloat(target.runningTotal) || 0) + amount);
+    target.runningTotal = String(roundMoney((parseFloat(target.runningTotal) || 0) + amount));
     const entry = { timestamp: new Date().toISOString(), amount };
     if (description) entry.description = description;
     target.log.push(entry);
@@ -1716,6 +2102,15 @@ function renderChart(data) {
     const pct = totals[i] / total;
     if (pct === 0) return; // skip categories with no spend
     const sweep = pct * 2 * Math.PI;
+    // One category holding all the expenses (e.g. the very first expense a
+    // new user enters) is a full turn: its arc would start and end on the
+    // same point, and SVG draws nothing at all for such an arc — the chart
+    // box showed only its legend. Draw the ring as a stroked circle instead.
+    if (pct > 0.9999) {
+      slices += `<circle cx="${cx}" cy="${cy}" r="${(radius + inner) / 2}" fill="none" stroke="${cat.colour}" stroke-width="${radius - inner}"/>`;
+      angle += sweep;
+      return;
+    }
     const x1 = cx + radius * Math.cos(angle);
     const y1 = cy + radius * Math.sin(angle);
     angle += sweep;
@@ -1875,7 +2270,7 @@ function renderHeatmap(data) {
     // title gives desktop/browser hover a tooltip, but this is a phone-only
     // PWA with no hover — tapping expands the inline summary panel below
     // the grid instead, which is the primary way to read a cell
-    return `<div class="heatmap-cell${extraCls}${selectedCls}"${style} title="${title}" onclick="selectHeatmapDay(${dayKey})"><span class="heatmap-daynum">${day}</span></div>`;
+    return `<div class="heatmap-cell${extraCls}${selectedCls}"${style} title="${title}" role="button" tabindex="0" aria-label="${title}" aria-pressed="${selectedHeatmapDay === dayKey}" onclick="selectHeatmapDay(${dayKey})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectHeatmapDay(${dayKey})}"><span class="heatmap-daynum">${day}</span></div>`;
   };
 
   let cells = '';
@@ -2008,13 +2403,7 @@ function openExpenseLog() {
       }).join('');
 
   const html = `
-    <div class="sheet-header">
-      <button class="sheet-back-btn" onclick="closeSheet()">
-        <span class="sheet-option-icon">${ICON_BACK}</span>
-      </button>
-      <div class="sheet-title-inline">Expense Log${heatmapCategoryFilter === 'all' ? '' : ` — ${escapeHtml(heatmapCategoryFilter)}`}</div>
-      <div class="sheet-back-placeholder"></div>
-    </div>
+    ${sheetHeader(`Expense Log${heatmapCategoryFilter === 'all' ? '' : ` — ${escapeHtml(heatmapCategoryFilter)}`}`)}
     ${rows}
     <div class="sheet-version-line">Version ${APP_VERSION}</div>
   `;
@@ -2112,7 +2501,11 @@ function renderApp() {
 
 function renderYearSelect() {
   const sel = document.getElementById('yearSelect');
-  sel.innerHTML = YEARS.map(y =>
+  // The year on screen is always offered, even if an undo/import just removed
+  // the last saved month that put it on the list
+  const years = getYears();
+  if (!years.includes(currentYear)) { years.push(currentYear); years.sort((a, b) => a - b); }
+  sel.innerHTML = years.map(y =>
     `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`
   ).join('');
   sel.onchange = () => {
@@ -2145,7 +2538,7 @@ function renderMonthTabs() {
   tabs.innerHTML = MONTHS.map((m, i) => {
     const locked = isProtected(currentYear, i);
     return `<button class="${i === currentMonth ? 'active' : ''}" onclick="switchMonth(${i})">
-      ${m}${locked ? ' 🔒' : ''}
+      ${m}${locked ? ` ${ICON_LOCK_SMALL}<span class="visually-hidden"> (protected)</span>` : ''}
     </button>`;
   }).join('');
 
@@ -2253,11 +2646,12 @@ function renderBudget() {
             />
           </div>`;
       } else {
+        // A <label>, so a tap anywhere in the cell ticks the 17px box inside it
         statusCell = `
-          <div class="cell-paid">
+          <label class="cell-paid cell-paid-tap">
             <input type="checkbox" ${checkedAttr} aria-label="Paid"
               onchange="handlePaidToggle(${catIdx},${rowIdx},this)" />
-          </div>`;
+          </label>`;
       }
 
       html += `
@@ -2358,14 +2752,17 @@ function toggleClass(id, className, active) {
 // button, so an accidental uncheck there would silently wipe that fact.
 // Ticking it back on is left as a single tap: a stray tap re-checking an
 // already-unpaid row has no destructive effect worth gating.
-function handlePaidToggle(catIdx, rowIdx, checkboxEl) {
+async function handlePaidToggle(catIdx, rowIdx, checkboxEl) {
   if (checkboxEl.checked) {
     updateRow(catIdx, rowIdx, 'paid', true);
     return;
   }
   const data = loadData(currentYear, currentMonth);
   const expenseName = data[catIdx].rows[rowIdx].expense || '(unnamed)';
-  if (!confirm(`Mark "${expenseName}" as unpaid?\nThis clears its paid date.`)) {
+  const accepted = await askConfirm(`Mark "${expenseName}" as unpaid?\nThis clears its paid date.`, {
+    title: 'Mark as unpaid', confirmLabel: 'Mark unpaid'
+  });
+  if (!accepted) {
     checkboxEl.checked = true;
     return;
   }
@@ -2399,7 +2796,7 @@ function updateRow(catIdx, rowIdx, field, value) {
       // Direct edits to the field (as opposed to the "Add to Total" modal —
       // see submitAddToTotal()) still represent a spend event; log the
       // delta, not the absolute value, same convention "Add to Total" uses
-      const delta = (parseFloat(value) || 0) - (parseFloat(target.runningTotal) || 0);
+      const delta = roundMoney((parseFloat(value) || 0) - (parseFloat(target.runningTotal) || 0));
       if (delta !== 0) target.log.push({ timestamp: new Date().toISOString(), amount: delta });
     }
 
@@ -2432,18 +2829,35 @@ function removeRow(catIdx, rowIdx) {
   if (data[catIdx].rows.length > 1) {
     const row = data[catIdx].rows[rowIdx];
     const desc = `Removed row "${row.expense || '(unnamed)'}" (${fmt(parseFloat(row.cost) || 0)}) from "${data[catIdx].name}"`;
+    let saved = false;
     withUndo(desc, () => {
       const d = loadData(currentYear, currentMonth);
       d[catIdx].rows.splice(rowIdx, 1);
-      saveData(currentYear, currentMonth, d);
+      saved = saveData(currentYear, currentMonth, d);
       renderBudget();
     });
     closeSheet();
+    if (saved) showUndoToast(`Removed "${row.expense || '(unnamed)'}".`);
   } else {
     closeSheet();
     showToast('Cannot remove the last row in a category. Delete the category instead if it\'s no longer needed.');
   }
 }
+
+// ── iPhone/iPad: no zoom-on-focus ────────────────────────────────────────────
+// iOS zooms the page in whenever a field with text smaller than 16px takes
+// focus, and the budget rows use 12px to fit four columns on a phone.
+// maximum-scale=1 switches that off; iOS still allows pinch-zoom regardless
+// of it, so nothing is lost there. Applied to iOS only — on Android the same
+// setting would disable pinch-zoom outright.
+function preventIosFocusZoom() {
+  const ua = navigator.userAgent || '';
+  const isIos = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (!isIos || typeof document.querySelector !== 'function') return;
+  const viewport = document.querySelector('meta[name="viewport"]');
+  if (viewport) viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0');
+}
+preventIosFocusZoom();
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 renderApp();

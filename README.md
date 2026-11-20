@@ -37,7 +37,7 @@ The app appears on the home screen and launches full-screen like a native app, s
 
 ### 💼 Budget Management
 - **Sticky header** — app title, year selector, and month tabs remain visible while scrolling
-- **Year selector** — top right, covers current year + 4 years ahead
+- **Year selector** — top right, covers current year + 4 years ahead, plus every earlier year that has saved budget data (so last year stays reachable after New Year)
 - **Monthly tabs** — one tab per month, January through December
 - **Remembers last viewed month** — reopening the app (e.g. after being minimized) returns you to whichever month/year you last had open, rather than resetting to today's month
 - **Auto-scroll to current tab** — the active month tab is automatically scrolled into view, aligned to the left edge of the month scroll bar
@@ -50,8 +50,8 @@ The app appears on the home screen and launches full-screen like a native app, s
 ### 🗂️ Categories
 - **9 default categories** — Income, Tithes, Home, Vehicles, Debits, Food, Fuel, Entertainment, Miscellaneous
 - **Add custom categories** — via the "+ Add Category" button at the bottom of the list
-- **Rename categories** — via the ⋮ menu on each category header (not shown for Income)
-- **Delete categories** — via the ⋮ menu with confirmation prompt (not shown for Income)
+- **Rename categories** — via the ⋮ menu on each category header (not shown for Income); names are capped at 30 characters and two categories can't share a name
+- **Delete categories** — via the ⋮ menu with an in-app confirmation (not shown for Income), followed by a message with its own **Undo** button
 - **Reorder categories** — press and hold the category's ⋮ button (the same one that opens its menu — a short tap still does that) until it lifts, then drag it to a new position and release; Income is permanently locked to the top position and can never be picked up or dropped onto
 - **Category colours** — each category has a selectable colour from a 16-colour palette, applied to the section header and pie chart; Income has its own fixed selectable colour separate from the expense palette
 - **Section totals** — each category header displays the sum of all its rows on the right
@@ -128,6 +128,11 @@ Ticking the checkbox is a single tap, no confirmation. Unticking it asks for con
 
 ### ♿ Accessibility
 - Bottom sheet is a proper dialog (`role="dialog"`, `aria-modal`) and can be dismissed with **Escape**, same as tapping the overlay
+- Each sheet and dialog is announced by its own title (`aria-labelledby`), takes focus when it opens and hands it back when it closes
+- Colour swatches are labelled buttons, heatmap days are reachable and named, and unavailable Undo/Redo are really `disabled`
+- Touch targets (paid checkbox, ⋮ buttons, sheet back button, colour swatches, month tabs) are enlarged to roughly 44px without changing how they look
+- In light mode the green/red/blue figures use darker shades that meet 4.5:1 contrast; dark mode keeps the bright ones
+- On iPhone/iPad, tapping a field no longer zooms the page in
 - Expense name, cost, paid, and running-total inputs all have accessible labels
 - `orientation: portrait` locked in the manifest and `theme-color`/`mobile-web-app-capable` meta tags added — this is a phone-only, standalone-only layout
 
@@ -136,7 +141,7 @@ Ticking the checkbox is a single tap, no confirmation. Unticking it asks for con
 - Copies current month's data (names + costs, paid boxes reset, running totals reset) to all unprotected following months across all years
 - **Current Month Protected / Unprotected** — now moved into the main menu
 - **Auto-protect** — any manual edit to a month automatically protects it from being overwritten
-- **🔒 indicator** — protected months show a lock icon on the month tab
+- **Lock indicator** — protected months show a padlock icon on the month tab
 - Propagation skips protected months but continues to unprotected months beyond them
 - **Skip count reported** — "Set as Template" reports how many months were updated and how many were skipped because they're protected, alongside the 🔒 icons on the month tabs
 
@@ -163,19 +168,25 @@ Accessed via **Help** in the main menu:
 - Back returns to the previous menu instead of forcing the user to close and reopen the menu flow
 - Export, Import, App Permissions, Help/User Manual/FAQ, and Choose Colour all use this submenu back pattern
 - Main menu actions now use the same back-style header layout, with no separate cancel button in the sheet body
+- Every sheet has a grab handle: **swipe down** on it (or on the sheet's header) to close
+- While a sheet or dialog is open, the page behind it is locked and cannot scroll
+- Confirmations and text entry (rename, add category, delete, set as template, mark unpaid, import, update available) use in-app dialogs instead of the browser's own pop-ups
 
 ### 📤 Export / Import
 - **Export Current Month As Template** — downloads a JSON file containing the current month's categories, rows, protection status, row modes, paid state, and running total values
 - **Export Entire Budget History** — downloads a JSON file containing all saved months and protection flags across all years (undo/redo history excluded)
-- **Import a Single Month Template** — overwrites the currently selected month only, with confirmation prompt
+- **Import a Single Month Template** — overwrites the currently selected month only, with confirmation prompt; a file whose contents are not a valid month is refused before anything is saved
 - **Import Budget History** — overwrites all matching saved months/settings from the file, with confirmation prompt
-- Only recognised app data keys (budget months and protection flags) are ever written by a history import — unrelated or unexpected entries in the file are skipped and reported, rather than being written to storage
+- Only recognised, well-formed app data (budget months and protection flags) is ever written by a history import — unrelated, unexpected or malformed entries in the file are skipped and reported, rather than being written to storage
+- "Import complete" is only shown when something was actually saved
 - All imports are recorded on the Undo stack
 - Export / Import submenu icons are aligned with the app’s existing line-icon theme
 
 ### ↩️ Undo / Redo
 - Covers all mutating actions: row edits, add/remove row, row mode switches, category rename/colour/move/delete/add, Set Month as Template, Month Protected/Unprotected, and imports
 - Stores the last **10 actions**, shared across every month — not scoped per month
+- Each step stores only what that action changed (not a copy of every month), so undo history stays small; if storage ever runs short, the oldest undo steps are dropped before a budget edit is
+- Deleting a category and removing or moving a row show a message with a one-tap **Undo** button
 - Undo stack is cleared of redo history whenever a new action is performed after an undo (standard undo/redo behaviour)
 - Persists across page refresh — stored in localStorage
 - Each undo/redo shows a plain-language description of the action reverted or reapplied, as a brief toast rather than a blocking dialog — including which month/year it affected, since the shared stack means that's not always whatever month is currently on screen (a full history import is the one exception, since it isn't scoped to a single month at all)
@@ -208,6 +219,7 @@ Accessed via **Help** in the main menu:
     ├── version.json        # Single source of truth for app version detection
     ├── manifest.json       # PWA manifest — icons, display mode, theme
     ├── README.md           # This file
+    ├── tests/app.test.js   # Test suite — `node --test tests/app.test.js` (also run by GitHub Actions on every push)
     └── Icons/
         ├── icon-192.png          # App icon — home screen, apple-touch-icon
         ├── icon-512.png          # App icon — splash screen
@@ -226,13 +238,13 @@ All budget data is stored in the browser's localStorage — no server, no accoun
 |---|---|
 | budget_{year}_{month} | Full category and row data for that month |
 | protected_{year}_{month} | Protection flag for that month |
-| __undoStack | Last 10 undo snapshots |
-| __redoStack | Last 10 redo snapshots |
+| __undoStack | Last 10 undo steps (per step: the previous value of each key that step changed) |
+| __redoStack | Last 10 redo steps (same format) |
 | lastViewedMonth | The last month/year tab that was open — used to restore your place when reopening the app |
 
 ⚠️ Clearing Safari's website data will erase all budget entries, undo/redo history, and the remembered last-viewed month. Use Export regularly for a true backup, and grant Persistent Storage permission via the App Permissions menu to reduce automatic data loss.
 
-If on-device storage is full, the app now shows a clear warning instead of silently discarding the change — your edit is either rejected with an explanation, or saved with a note that it couldn't be added to Undo history.
+If on-device storage is full, undo history is dropped first to make room for the edit. If there is still no room, the app shows a clear warning instead of silently discarding the change — your edit is either rejected with an explanation, or saved with a note that it couldn't be added to Undo history.
 
 ---
 
@@ -392,6 +404,8 @@ Every change to this app — however small — follows the same process:
 | v5.13 | Standardized the User Manual's and FAQ's Fully Paid vs Running Total explanations on one worked example (a R100 monthly coffee budget spent over multiple cups) instead of ad hoc wording in each spot. Spending heatmap now leads with the previous month's 25th onward as dimmed lead-in cells, matching a pay-cycle window rather than a strict calendar month — those lead cells only light up for spend actually logged on them, nothing is backfilled or assumed for days with nothing recorded. The heatmap's "All Categories" heat colour also changed from blue to green, matching the app's other positive/green accents |
 | v5.13.1 | Bug fix — v5.13's lead days were sourced from the previous month's own separate stored data, which double-counted any ordinary previous-month spend (it already renders on that month's own heatmap) and, the other way round, silently dropped an expense genuinely budgeted under the month being viewed but paid a few days early (e.g. rent due the 1st, paid on the 28th so it clears the landlord's account in time — that row lives in the current month's own data, not the previous month's). Lead days are now read from the current month's own data only, bucketed by date, with no cross-month data load at all. Lead days also only appear when the current month's own data actually has something dated in that window (previously the block always rendered, empty, whenever the heatmap showed at all), and now share one intensity scale with the rest of the month instead of scaling separately |
 | v5.14 | Editing a Fully Paid row's cost no longer re-stamps `paidAt` — only the checkbox itself sets or clears it now, so a cost correction to an already-logged spend doesn't get misread as a new payment happening today. "Add to Total" gains an optional description field (plain text, full keyboard, capped at 15 characters) alongside the existing required amount field (numeric keypad); when given, it displays inline with the row's expense name in the Expense Log and heatmap day-summary panel, e.g. "Week 1 — Weekend trip". A direct edit to the running total field (rather than via the dialog) still logs a delta as before, with no description, since there's no dialog to enter one in that flow |
+| v5.15 | Review fixes and polish. **Fixes:** the page behind an open menu or dialog no longer scrolls; the year selector lists every year that has data (last year used to vanish on 1 January); undo stores only what each action changed instead of a copy of every month, and budget edits take priority over undo history when storage is short; running totals are rounded to cents (10.10 + 20.20 showed 30.299999999999997); a wrong-shaped import file is refused instead of blanking the month, and "Import complete" is only shown when something was saved; Add to Total focuses the amount and explains an empty/zero amount instead of closing; longer messages stay on screen longer; no error on return-to-app in browsers without service workers; no zoom-on-focus on iPhone. **Polish:** in-app dialogs replace the browser's confirm/prompt boxes; one line-icon set (no emoji); larger touch targets; darker status colours in light mode; sheets are labelled for screen readers, have a grab handle and close on swipe-down; one-tap Undo after delete/remove/move; category names capped at 30 characters and unique. Tests run on every push (GitHub Actions) |
+| v5.15.1 | Bug fix — the pie chart drew nothing when a single category held 100% of the month's expenses (for example the first expense a new user enters): an SVG arc that starts and ends on the same point is not rendered, so the chart box showed only its legend. A full ring is now drawn in that case |
 
 ---
 

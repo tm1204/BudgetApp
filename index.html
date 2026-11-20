@@ -19,7 +19,7 @@
   <div class="sticky-wrap">
     <header>
       <button class="header-left" id="menuTrigger" onclick="openMainMenu()">
-        <img src="Icons/icon-192.png" class="header-icon" alt="BudgetApp" />
+        <img src="Icons/icon-192.png" class="header-icon" alt="" />
         <span class="header-title">BudgetApp</span>
         <span class="menu-caret">▾</span>
       </button>
@@ -36,15 +36,20 @@
 
   <!-- Bottom sheet overlay used for main menu, category menu, colour picker etc -->
   <div class="sheet-overlay" id="sheetOverlay" onclick="closeOverlay()"></div>
-  <div class="bottom-sheet" id="bottomSheet" role="dialog" aria-modal="true" aria-label="BudgetApp menu"></div>
+  <!-- Labelled by whichever title the open sheet renders (#sheetTitle), so a
+       screen reader announces the actual menu; tabindex lets it take focus -->
+  <div class="bottom-sheet" id="bottomSheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" tabindex="-1"></div>
 
   <!-- Centered modal (shares the overlay above) used for short, single-purpose
        entry dialogs like "Add to Total" — a bottom sheet reads as a menu, but
        these are one input and two buttons, closer to a classic dialog -->
-  <div class="center-modal" id="centerModal" role="dialog" aria-modal="true" aria-label="Add to Total"></div>
+  <div class="center-modal" id="centerModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1"></div>
 
   <!-- Toast used for routine feedback (undo/redo, import results, warnings) -->
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <span id="toastText"></span>
+    <button class="toast-action" id="toastAction" onclick="runToastAction()" hidden></button>
+  </div>
 
   <script src="app.js"></script>
 </body>

@@ -1,3 +1,4 @@
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -64,8 +65,17 @@ function createClassList(initial = []) {
 function createDom(toasts = []) {
   const elements = new Map();
   const listeners = {};
+  // Stands in for <meta name="viewport">, which app.js rewrites on iOS only
+  const viewportMeta = { content: 'width=device-width, initial-scale=1.0', setAttribute(name, value) { this[name] = value; } };
   const document = {
-    body: {},
+    visibilityState: 'visible',
+    querySelector(selector) { return selector === 'meta[name="viewport"]' ? viewportMeta : null; },
+    // Drag-to-reorder and swipe-to-close attach move/up listeners for the
+    // length of one gesture and remove them again afterwards
+    removeEventListener(event, cb) { listeners[event] = (listeners[event] || []).filter(l => l !== cb); },
+    // app.js toggles 'read-only' on <body> and 'popup-open' on <html> via classList
+    body: { classList: createClassList() },
+    documentElement: { classList: createClassList() },
     addEventListener(event, cb) { (listeners[event] = listeners[event] || []).push(cb); },
     createElement(tag) {
       if (tag === 'a') return { click() {}, setAttribute() {} };
@@ -73,7 +83,29 @@ function createDom(toasts = []) {
     },
     getElementById(id) {
       if (!elements.has(id)) {
-        if (id === 'toast') {
+        if (id === 'budgetContent') {
+          // The real DOM would parse the markup renderBudget() writes here and
+          // expose the heatmap as its own element. This fake doesn't parse
+          // HTML, so mirror that one piece by hand: whatever sits between
+          // <div id="heatmapContainer"> and the Add Category button.
+          let html = '';
+          elements.set(id, {
+            classList: createClassList(), style: {}, value: '', click() {}, removeAttribute() {}, querySelector() { return null; },
+            get innerHTML() { return html; },
+            set innerHTML(v) {
+              html = v;
+              const marker = '<div id="heatmapContainer">';
+              const start = v.indexOf(marker);
+              const heatmap = document.getElementById('heatmapContainer');
+              if (start === -1) { heatmap.innerHTML = ''; return; }
+              const from = start + marker.length;
+              const end = v.indexOf('<button class="add-category-btn"', from);
+              heatmap.innerHTML = v.slice(from, end === -1 ? undefined : end).replace(/<\/div>\s*$/, '');
+            }
+          });
+        } else if (id === 'toastText') {
+          // showToast() writes the message into #toastText (the #toast
+          // container also holds the optional action button)
           let text = '';
           elements.set(id, {
             classList: createClassList(),
@@ -82,13 +114,17 @@ function createDom(toasts = []) {
             set textContent(v) { text = v; toasts.push(v); }
           });
         } else {
-          elements.set(id, { innerHTML: '', classList: createClassList(), style: {}, value: '', click() {} });
+          elements.set(id, { innerHTML: '', classList: createClassList(), style: {}, value: '', click() {}, removeAttribute() {},
+            // alignActiveMonthTabDeferred() calls tabs.querySelector from a 30ms timer;
+            // without this the timer threw after the test ended and the uncaught
+            // exception was blamed on whichever test happened to be running
+            querySelector() { return null; } });
         }
       }
       return elements.get(id);
     }
   };
-  return { document, elements, listeners };
+  return { document, elements, listeners, viewportMeta };
 }
 
 // Builds a fresh vm context, loads app.js into it, and returns handles used
@@ -112,13 +148,20 @@ function createDom(toasts = []) {
 // registrationOverride controls what navigator.serviceWorker.getRegistration()
 // resolves to, e.g. { waiting: fakeWorker } to simulate an update already
 // sitting in the waiting state.
-function loadApp({ storage, confirmReturns = true, promptReturns = null, fetchVersionPayload, registrationOverride = null } = {}) {
+//
+// The app's own in-app dialogs (askConfirm/askPrompt) are replaced after load
+// with stand-ins that answer immediately from confirmReturns/promptReturns —
+// top-level function declarations are properties of the vm context's global,
+// so app.js's own calls pick the replacement up. Pass realDialogs: true to
+// keep the real implementations (for the tests of the dialogs themselves).
+function loadApp({ storage, confirmReturns = true, promptReturns = null, fetchVersionPayload, registrationOverride = null, realDialogs = false, userAgent = '', noServiceWorker = false } = {}) {
   const toasts = [];
-  const { document, listeners } = createDom(toasts);
+  const { document, listeners, viewportMeta } = createDom(toasts);
   const alerts = []; // kept for defensiveness, but app.js no longer calls alert() anywhere — see toasts
   const confirms = [];
   const reloads = [];
   const swListeners = {};
+  let swRegistrations = 0;
   const confirmFn = typeof confirmReturns === 'function' ? confirmReturns : () => confirmReturns;
   let fetchCallCount = 0;
   // app.js constructs its own `new FileReader()` internally, so the content
@@ -127,8 +170,9 @@ function loadApp({ storage, confirmReturns = true, promptReturns = null, fetchVe
   const fileContentHolder = { value: '{}' };
 
   const navigator = {
+    userAgent,
     serviceWorker: {
-      register() { return Promise.resolve({ addEventListener() {}, update() {} }); },
+      register() { swRegistrations++; return Promise.resolve({ addEventListener() {}, update() {} }); },
       getRegistration() { return Promise.resolve(registrationOverride); },
       // Captures listeners registered on the shared serviceWorker container
       // (distinct from a single registration's own addEventListener above) —
@@ -140,6 +184,9 @@ function loadApp({ storage, confirmReturns = true, promptReturns = null, fetchVe
       persisted() { return Promise.resolve(false); }
     }
   };
+
+  // Some browsers/modes have no navigator.serviceWorker at all
+  if (noServiceWorker) delete navigator.serviceWorker;
 
   const context = vm.createContext({
     console,
@@ -185,7 +232,11 @@ function loadApp({ storage, confirmReturns = true, promptReturns = null, fetchVe
   });
 
   vm.runInContext(APP_SOURCE, context, { filename: 'app.js' });
-  return { context, document, alerts, confirms, fileContentHolder, reloads, swListeners, toasts, listeners };
+  if (!realDialogs) {
+    context.askConfirm = (msg) => { confirms.push(msg); return Promise.resolve(confirmFn(msg)); };
+    context.askPrompt = () => Promise.resolve(promptReturns);
+  }
+  return { context, document, viewportMeta, alerts, confirms, fileContentHolder, reloads, swListeners, toasts, listeners, getSwRegistrations: () => swRegistrations, getFetchCallCount: () => fetchCallCount };
 }
 
 // Flushes pending microtasks (promise .then chains) without relying on a
@@ -200,13 +251,17 @@ function flushMicrotasks() {
 // bindings live in a separate lexical environment from the global object, so
 // writing context.pendingImportType from the host side would silently be a
 // no-op as far as the running script is concerned.
-function importFile(app, type, content) {
+//
+// Async: the import flow asks for confirmation through the in-app dialog, so
+// it finishes a few microtasks after handleImportFile() returns.
+async function importFile(app, type, content) {
   app.context.triggerImport(type);
   app.fileContentHolder.value = content;
   app.context.handleImportFile({ target: { files: [{}], value: '' } });
+  await flushMicrotasks();
 }
 
-test('renders budget safely when stored data is malformed', () => {
+test('renders budget safely when stored data is malformed', async () => {
   const storage = createStorage({
     lastViewedMonth: '{bad json',
     budget_2026_7: '{bad json'
@@ -217,7 +272,7 @@ test('renders budget safely when stored data is malformed', () => {
   assert.ok(document.getElementById('budgetContent').innerHTML.includes('Budgeted Balance'));
 });
 
-test('reorders rows within a category', () => {
+test('reorders rows within a category', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -237,7 +292,7 @@ test('reorders rows within a category', () => {
   assert.equal(saved[1].rows[1].expense, 'Milk');
 });
 
-test('reorderRows supports an arbitrary-distance move, not just adjacent swaps', () => {
+test('reorderRows supports an arbitrary-distance move, not just adjacent swaps', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -263,7 +318,7 @@ test('reorderRows supports an arbitrary-distance move, not just adjacent swaps',
   assert.deepEqual(saved[1].rows.map(r => r.expense), ['Milk', 'Bread', 'Eggs', 'Cheese']);
 });
 
-test('reorderRows is a no-op (and records no undo entry) when fromIdx === toIdx', () => {
+test('reorderRows is a no-op (and records no undo entry) when fromIdx === toIdx', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -282,7 +337,7 @@ test('reorderRows is a no-op (and records no undo entry) when fromIdx === toIdx'
   assert.equal(context.getUndoStack().length, before, 'a no-op reorder must not push an undo entry');
 });
 
-test('reorderCategories moves a category an arbitrary distance and Income stays pinned at index 0', () => {
+test('reorderCategories moves a category an arbitrary distance and Income stays pinned at index 0', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -303,7 +358,7 @@ test('reorderCategories moves a category an arbitrary distance and Income stays 
   assert.equal(saved[1].isIncome, false);
 });
 
-test('reorderCategories refuses to move Income or to drop anything at index 0', () => {
+test('reorderCategories refuses to move Income or to drop anything at index 0', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -321,7 +376,7 @@ test('reorderCategories refuses to move Income or to drop anything at index 0', 
   assert.equal(storage.getItem('budget_2026_6'), before, 'neither call may change the saved order');
 });
 
-test('In Account shows a negative sign and the negative colour class when overspent', () => {
+test('In Account shows a negative sign and the negative colour class when overspent', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -334,13 +389,13 @@ test('In Account shows a negative sign and the negative colour class when oversp
   const { document } = loadApp({ storage });
 
   const html = document.getElementById('budgetContent').innerHTML;
-  const match = html.match(/In Account<\/span>\s*<span class="value ([^"]+)">(-?)R/);
+  const match = html.match(/In Account<\/span>\s*<span class="value ([^"]+)"[^>]*>(-?)R/);
   assert.ok(match, 'In Account value not found in rendered output');
   assert.equal(match[1], 'negative');
   assert.equal(match[2], '-');
 });
 
-test('a full storage quota does not silently drop a row edit', () => {
+test('a full storage quota does not silently drop a row edit', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -359,7 +414,7 @@ test('a full storage quota does not silently drop a row edit', () => {
   assert.ok(toasts.some(t => /storage is full/i.test(t)), 'expected a storage-full warning to be shown');
 });
 
-test('a full undo-stack quota still applies the edit, but warns undo is unavailable', () => {
+test('a full undo-stack quota still applies the edit, but warns undo is unavailable', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -376,7 +431,7 @@ test('a full undo-stack quota still applies the edit, but warns undo is unavaila
   assert.ok(toasts.some(t => /undo/i.test(t) && /storage/i.test(t)), 'expected an undo-history warning to be shown');
 });
 
-test('undo and redo run without throwing and revert/reapply correctly', () => {
+test('undo and redo run without throwing and revert/reapply correctly', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -401,7 +456,7 @@ test('undo and redo run without throwing and revert/reapply correctly', () => {
   assert.ok(toasts.some(t => t.includes('(July 2026)')), 'expected the affected month/year to appear in the toast');
 });
 
-test('importing a full history is not scoped to the currently-viewed month in its undo description', () => {
+test('importing a full history is not scoped to the currently-viewed month in its undo description', async () => {
   // Unlike a single-month edit, a history import can touch months across
   // every year — labelling it with just the currently-viewed month/year
   // would misrepresent what the undo entry actually reverts
@@ -418,14 +473,14 @@ test('importing a full history is not scoped to the currently-viewed month in it
       budget_2027_0: [{ name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'New', cost: '5', paid: false, mode: 'fully-paid', runningTotal: '' }] }]
     }
   };
-  importFile(app, 'history', JSON.stringify(payload));
+  await importFile(app, 'history', JSON.stringify(payload));
 
   const stack = app.context.getUndoStack();
   const lastEntry = stack[stack.length - 1];
   assert.equal(lastEntry.desc, 'Imported full budget history');
 });
 
-test('Set as Template reports both updated and skipped (protected) month counts', () => {
+test('Set as Template reports both updated and skipped (protected) month counts', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 0 }), // January
     budget_2026_0: JSON.stringify([
@@ -435,7 +490,7 @@ test('Set as Template reports both updated and skipped (protected) month counts'
   });
   const { context, toasts } = loadApp({ storage, confirmReturns: true });
 
-  context.setAsTemplate();
+  await context.setAsTemplate();
 
   // Computed the same way setAsTemplate() does, rather than a hardcoded
   // count that would go stale as real time passes: 11 remaining months in
@@ -450,7 +505,7 @@ test('Set as Template reports both updated and skipped (protected) month counts'
   assert.ok(toast.includes('1 protected month skipped'), `expected a skipped-month count, got: "${toast}"`);
 });
 
-test('removing the last row in a category is rejected with feedback instead of doing nothing', () => {
+test('removing the last row in a category is rejected with feedback instead of doing nothing', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -467,7 +522,7 @@ test('removing the last row in a category is rejected with feedback instead of d
   assert.ok(toasts.some(t => /last row/i.test(t)));
 });
 
-test('importing budget history only writes recognised keys, skipping foreign/dangerous ones', () => {
+test('importing budget history only writes recognised keys, skipping foreign/dangerous ones', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([{ name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }])
@@ -485,15 +540,18 @@ test('importing budget history only writes recognised keys, skipping foreign/dan
     }
   };
 
-  importFile(app, 'history', JSON.stringify(payload));
+  await importFile(app, 'history', JSON.stringify(payload));
 
   assert.equal(storage.getItem('budget_2027_0'), JSON.stringify(payload.entries.budget_2027_0));
   assert.equal(storage.getItem('evil_key'), null, 'non budget_/protected_ keys must never be imported');
-  assert.equal(storage.getItem('__undoStack'), null, 'undo/redo stacks must never be imported');
+  // A history import is itself an undoable action, so the stack is not empty,
+  // but it must hold only that entry and never the payload's own __undoStack
+  const undoStack = JSON.parse(storage.getItem('__undoStack') || '[]');
+  assert.ok(!undoStack.some(e => e.desc === 'malicious'), 'undo/redo stacks must never be imported');
   assert.ok(toasts.some(t => /skipped/i.test(t)));
 });
 
-test('a category colour that is not a valid hex value is sanitized on load, not rendered raw', () => {
+test('a category colour that is not a valid hex value is sanitized on load, not rendered raw', async () => {
   const maliciousColour = '"><script>alert(1)</script>';
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
@@ -509,7 +567,7 @@ test('a category colour that is not a valid hex value is sanitized on load, not 
   assert.ok(!html.includes('<script>alert'));
 });
 
-test('cost and running total values are HTML-escaped when rendered', () => {
+test('cost and running total values are HTML-escaped when rendered', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -567,7 +625,7 @@ test('service worker update handling does not throw when reg.installing is alrea
   assert.doesNotThrow(() => updatefoundHandler());
 });
 
-test('the menu displays the baked-in app version immediately, with no "Loading..." placeholder', () => {
+test('the menu displays the baked-in app version immediately, with no "Loading..." placeholder', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([{ name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: '', cost: '', paid: false, mode: 'fully-paid', runningTotal: '' }] }])
@@ -639,7 +697,7 @@ test('a mismatch detected by both the service worker and the version check only 
   assert.equal(confirms.length, 1, 'the second detection of the same update must not show a second dialog');
 });
 
-test('declining the reload prompt allows a later check to prompt again', () => {
+test('declining the reload prompt allows a later check to prompt again', async () => {
   // Drives promptForReload directly rather than through checkForAppUpdate(),
   // so this test has nothing to do with fetch or the automatic boot-time
   // check at all — no fetchVersionPayload is given, so that boot call's
@@ -653,7 +711,9 @@ test('declining the reload prompt allows a later check to prompt again', () => {
   });
 
   context.promptForReload('9.9.9', null); // declined
+  await flushMicrotasks(); // the in-app dialog answers asynchronously
   context.promptForReload('9.9.9', null); // a later detection of the same (or a further) update
+  await flushMicrotasks();
 
   assert.equal(confirms.length, 2, 'declining must reset the flag so a later detection can prompt again');
 });
@@ -724,7 +784,7 @@ test('confirming a reload waits for an in-progress install to finish, then activ
   assert.equal(reloads.length, 1, 'expected exactly one reload once control actually changed');
 });
 
-test('editing a row value patches computed numbers without rebuilding the whole page', () => {
+test('editing a row value patches computed numbers without rebuilding the whole page', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -745,11 +805,11 @@ test('editing a row value patches computed numbers without rebuilding the whole 
 
   // ...while the actual computed numbers this edit affects were patched:
   // Remaining = income(100) - new cost(20) = 80, section total = 20
-  assert.equal(document.getElementById('remaining-1-0').textContent, 'R 80.00');
-  assert.equal(document.getElementById('section-total-1').textContent, 'R 20.00');
+  assert.equal(document.getElementById('remaining-1-0').textContent, context.fmt(80));
+  assert.equal(document.getElementById('section-total-1').textContent, context.fmt(20));
 });
 
-test('category header colour is fixed inline to just the background, not the text', () => {
+test('category header colour is fixed inline to just the background, not the text', async () => {
   // pickTextColour() (per-category dark/light text) was removed — headers
   // now use one standard text colour (set in CSS on .section-header) for
   // every category, by request, rather than varying category to category.
@@ -769,7 +829,7 @@ test('category header colour is fixed inline to just the background, not the tex
   assert.match(html, /style="background:#2ECC71;"/, 'expected only a background colour inline, no per-category text colour');
 });
 
-test('categories saved with an old (pre-contrast-fix) palette colour are migrated to the new value on load', () => {
+test('categories saved with an old (pre-contrast-fix) palette colour are migrated to the new value on load', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -785,7 +845,7 @@ test('categories saved with an old (pre-contrast-fix) palette colour are migrate
   assert.ok(!html.toUpperCase().includes('#3498DB'), 'the old colour value must not still appear anywhere in the rendered output');
 });
 
-test('consecutive PALETTE colours (including the wrap from last back to first) are far apart in hue', () => {
+test('consecutive PALETTE colours (including the wrap from last back to first) are far apart in hue', async () => {
   // Regression for "consecutive categories shouldn't get similar pie-chart
   // colours" — DEFAULT_CATEGORIES and getNextColour() both hand out PALETTE
   // in array order, so array-adjacent entries are exactly the case that
@@ -823,7 +883,7 @@ test('consecutive PALETTE colours (including the wrap from last back to first) a
   }
 });
 
-test('pressing Escape closes an open bottom sheet, other keys do not', () => {
+test('pressing Escape closes an open bottom sheet, other keys do not', async () => {
   const { context, document, listeners } = loadApp({ storage: createStorage({}) });
 
   context.openMainMenu();
@@ -837,13 +897,13 @@ test('pressing Escape closes an open bottom sheet, other keys do not', () => {
   assert.ok(!document.getElementById('bottomSheet').classList.contains('open'));
 });
 
-test('the bottom sheet markup declares itself as an accessible dialog', () => {
+test('the bottom sheet markup declares itself as an accessible dialog', async () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   assert.match(html, /id="bottomSheet"[^>]*role="dialog"/);
   assert.match(html, /id="bottomSheet"[^>]*aria-modal="true"/);
 });
 
-test('index.html and manifest.json declare the iOS/PWA one-liners this release added', () => {
+test('index.html and manifest.json declare the iOS/PWA one-liners this release added', async () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
 
@@ -853,7 +913,7 @@ test('index.html and manifest.json declare the iOS/PWA one-liners this release a
   assert.equal(manifest.orientation, 'portrait');
 });
 
-test('manifest declares maskable icons for Android adaptive icon support', () => {
+test('manifest declares maskable icons for Android adaptive icon support', async () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
 
   const anyIcons = manifest.icons.filter(i => i.purpose === 'any');
@@ -868,7 +928,7 @@ test('manifest declares maskable icons for Android adaptive icon support', () =>
   });
 });
 
-test('every manifest icon is precached by the service worker', () => {
+test('every manifest icon is precached by the service worker', async () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
   const swSource = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
 
@@ -877,7 +937,7 @@ test('every manifest icon is precached by the service worker', () => {
   });
 });
 
-test('row expense/cost inputs have an explicit text colour instead of relying on browser default inheritance', () => {
+test('row expense/cost inputs have an explicit text colour instead of relying on browser default inheritance', async () => {
   // Regression, distinct from the .row-ellipsis-btn one above: <input>
   // elements don't inherit `color` from the page by default in browsers,
   // unlike regular text — these two had no color property at all (not even
@@ -889,7 +949,7 @@ test('row expense/cost inputs have an explicit text colour instead of relying on
   assert.match(css, /\.cell-cost input\[type="number"\]\s*\{[^}]*color:\s*inherit/);
 });
 
-test('every fixed dark/black text colour outside the category header is overridden in dark mode', () => {
+test('every fixed dark/black text colour outside the category header is overridden in dark mode', async () => {
   // Regression: .row-ellipsis-btn (the per-row ⋮ menu button) kept its
   // light-mode #3a3a3c text colour in dark mode, where .section's
   // background flips to #1c1c1e — nearly invisible, dark grey on near-black.
@@ -909,7 +969,9 @@ test('every fixed dark/black text colour outside the category header is overridd
 
   const selectorsWithDarkText = [...lightModeCss.matchAll(/(\.[\w-]+|^body)\s*\{[^}]*color:\s*#(?:1c1c1e|3a3a3c)\b/gm)]
     .map(m => m[1])
-    .filter(selector => selector !== '.section-header');
+    // .ellipsis-btn is the category header's own ⋮ button: its text colour is
+    // deliberately fixed to match .section-header (see style.css)
+    .filter(selector => selector !== '.section-header' && selector !== '.ellipsis-btn');
 
   assert.ok(selectorsWithDarkText.includes('.row-ellipsis-btn'), 'sanity check: the known-fixed selector should still be found by this scan');
   assert.ok(selectorsWithDarkText.includes('body'), 'sanity check: this scan should also catch bare-element selectors, not just .classes');
@@ -919,7 +981,7 @@ test('every fixed dark/black text colour outside the category header is overridd
   });
 });
 
-test('category menu hides Rename/Delete for Income (still allows Change Colour), and never shows Move Up/Down — reordering is drag-only now', () => {
+test('category menu hides Rename/Delete for Income (still allows Change Colour), and never shows Move Up/Down — reordering is drag-only now', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -952,7 +1014,7 @@ test('category menu hides Rename/Delete for Income (still allows Change Colour),
   assert.ok(!html.includes('Move Down'));
 });
 
-test('row menu never shows Move Up/Down — reordering is drag-only now', () => {
+test('row menu never shows Move Up/Down — reordering is drag-only now', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -983,7 +1045,7 @@ test('row menu never shows Move Up/Down — reordering is drag-only now', () => 
   assert.ok(!html.includes('Move Down'));
 });
 
-test('"Add to Total" only appears on running-total rows, and adds the entered amount to the existing total', () => {
+test('"Add to Total" only appears on running-total rows, and adds the entered amount to the existing total', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1020,10 +1082,10 @@ test('"Add to Total" only appears on running-total rows, and adds the entered am
 
   // withUndo() auto-appends the viewed month/year (currentMonth 6 = July, from lastViewedMonth above)
   const stack = context.getUndoStack();
-  assert.equal(stack[stack.length - 1].desc, 'Added R 50.00 to running total for "Emergency fund" (July 2026)');
+  assert.equal(stack[stack.length - 1].desc, `Added ${context.fmt(50)} to running total for "Emergency fund" (July 2026)`);
 });
 
-test('row menu lists options in Add to Total, Switch Mode, Remove Row order', () => {
+test('row menu lists options in Add to Total, Switch Mode, Remove Row order', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1048,7 +1110,7 @@ test('row menu lists options in Add to Total, Switch Mode, Remove Row order', ()
   assert.ok(!html.includes('Move Up') && !html.includes('Move Down'), 'reordering is long-press-and-drag now, not a menu option');
 });
 
-test('main menu places App Permissions after Undo/Redo, and Help after App Permissions', () => {
+test('main menu places App Permissions after Undo/Redo, and Help after App Permissions', async () => {
   const storage = createStorage({});
   const { context, document } = loadApp({ storage });
 
@@ -1063,7 +1125,7 @@ test('main menu places App Permissions after Undo/Redo, and Help after App Permi
   assert.ok(permissionsIdx < helpIdx, 'Help should sit directly below App Permissions');
 });
 
-test('Help opens a sub-menu leading to User Manual and FAQ content', () => {
+test('Help opens a sub-menu leading to User Manual and FAQ content', async () => {
   const storage = createStorage({});
   const { context, document } = loadApp({ storage });
 
@@ -1084,7 +1146,7 @@ test('Help opens a sub-menu leading to User Manual and FAQ content', () => {
   assert.ok(html.includes('openHelpMenu()'), 'FAQ\'s back button should return to the Help menu');
 });
 
-test('Income wording says Source/Income source/Amount instead of Expense/Expense name/Cost; other categories are unchanged', () => {
+test('Income wording says Source/Income source/Amount instead of Expense/Expense name/Cost; other categories are unchanged', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1105,14 +1167,14 @@ test('Income wording says Source/Income source/Amount instead of Expense/Expense
   assert.ok(html.includes('aria-label="Cost"'));
 });
 
-test('a fresh month with no saved data includes the new Miscellaneous default category', () => {
+test('a fresh month with no saved data includes the new Miscellaneous default category', async () => {
   const storage = createStorage({});
   const { document } = loadApp({ storage });
   const html = document.getElementById('budgetContent').innerHTML;
   assert.ok(html.includes('Miscellaneous'));
 });
 
-test('Income rows never expose Running Total mode, even on legacy data already saved with that mode', () => {
+test('Income rows never expose Running Total mode, even on legacy data already saved with that mode', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1134,7 +1196,7 @@ test('Income rows never expose Running Total mode, even on legacy data already s
   assert.ok(!html.includes('Add to Total'), 'Add to Total should never appear on an Income row');
 });
 
-test('category menu lists options in Rename, Change Colour, Delete order', () => {
+test('category menu lists options in Rename, Change Colour, Delete order', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1157,7 +1219,7 @@ test('category menu lists options in Rename, Change Colour, Delete order', () =>
   assert.ok(!html.includes('Move Up') && !html.includes('Move Down'), 'reordering is long-press-and-drag now, not a menu option');
 });
 
-test('User Manual and FAQ use inline SVG icons matching the app\'s existing icon style, not emoji', () => {
+test('User Manual and FAQ use inline SVG icons matching the app\'s existing icon style, not emoji', async () => {
   const { context, document } = loadApp({ storage: createStorage({}) });
 
   context.openHelpMenu();
@@ -1171,7 +1233,7 @@ test('User Manual and FAQ use inline SVG icons matching the app\'s existing icon
 
 // ── Spend History (log / paidAt) & Spending Heatmap ─────────────────────────
 
-test('legacy rows saved before spend-history fields existed load with an empty log and null paidAt', () => {
+test('legacy rows saved before spend-history fields existed load with an empty log and null paidAt', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1184,11 +1246,13 @@ test('legacy rows saved before spend-history fields existed load with an empty l
   const { context } = loadApp({ storage });
 
   const data = context.loadData(2026, 6);
-  assert.deepEqual(data[1].rows[0].log, []);
+  // JSON compare: arrays built inside the vm context have a different
+  // Array.prototype, which node:assert/strict deepEqual treats as unequal
+  assert.equal(JSON.stringify(data[1].rows[0].log), '[]');
   assert.equal(data[1].rows[0].paidAt, null);
 });
 
-test('DEFAULT_CATEGORIES fallback rows never share a log array across separate loadData() calls (regression: array field aliasing)', () => {
+test('DEFAULT_CATEGORIES fallback rows never share a log array across separate loadData() calls (regression: array field aliasing)', async () => {
   // No budget data saved for any month — every loadData() call below falls
   // back to DEFAULT_CATEGORIES, which is exactly the scenario that risked
   // every fallback row sharing one array reference (see normalizeRow()).
@@ -1205,7 +1269,7 @@ test('DEFAULT_CATEGORIES fallback rows never share a log array across separate l
   assert.equal(dataA2[1].rows[0].log.length, 0, 'without an explicit save, a later loadData() call should get a fresh fallback, not the mutated in-memory copy');
 });
 
-test('ticking "Paid" on a fully-paid row stamps paidAt; unticking clears it', () => {
+test('ticking "Paid" on a fully-paid row stamps paidAt; unticking clears it', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1229,7 +1293,7 @@ test('ticking "Paid" on a fully-paid row stamps paidAt; unticking clears it', ()
   assert.equal(saved[1].rows[0].paidAt, null);
 });
 
-test('handlePaidToggle checks a row straight through, with no confirm prompt', () => {
+test('handlePaidToggle checks a row straight through, with no confirm prompt', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1242,7 +1306,7 @@ test('handlePaidToggle checks a row straight through, with no confirm prompt', (
   const { context, confirms } = loadApp({ storage, confirmReturns: true });
 
   const checkbox = { checked: true };
-  context.handlePaidToggle(1, 0, checkbox);
+  await context.handlePaidToggle(1, 0, checkbox);
 
   assert.equal(confirms.length, 0, 'ticking Paid must not prompt for confirmation');
   const saved = JSON.parse(storage.getItem('budget_2026_6'));
@@ -1251,7 +1315,7 @@ test('handlePaidToggle checks a row straight through, with no confirm prompt', (
   assert.equal(checkbox.checked, true);
 });
 
-test('handlePaidToggle prompts before unchecking; accepting clears paid/paidAt', () => {
+test('handlePaidToggle prompts before unchecking; accepting clears paid/paidAt', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1264,7 +1328,7 @@ test('handlePaidToggle prompts before unchecking; accepting clears paid/paidAt',
   const { context, confirms } = loadApp({ storage, confirmReturns: true });
 
   const checkbox = { checked: false };
-  context.handlePaidToggle(1, 0, checkbox);
+  await context.handlePaidToggle(1, 0, checkbox);
 
   assert.equal(confirms.length, 1, 'unchecking Paid must prompt for confirmation');
   assert.ok(confirms[0].includes('Milk'));
@@ -1274,7 +1338,7 @@ test('handlePaidToggle prompts before unchecking; accepting clears paid/paidAt',
   assert.equal(checkbox.checked, false);
 });
 
-test('handlePaidToggle declining the confirm leaves paid/paidAt untouched and re-checks the box', () => {
+test('handlePaidToggle declining the confirm leaves paid/paidAt untouched and re-checks the box', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1287,7 +1351,7 @@ test('handlePaidToggle declining the confirm leaves paid/paidAt untouched and re
   const { context, confirms } = loadApp({ storage, confirmReturns: false });
 
   const checkbox = { checked: false };
-  context.handlePaidToggle(1, 0, checkbox);
+  await context.handlePaidToggle(1, 0, checkbox);
 
   assert.equal(confirms.length, 1);
   const saved = JSON.parse(storage.getItem('budget_2026_6'));
@@ -1296,7 +1360,7 @@ test('handlePaidToggle declining the confirm leaves paid/paidAt untouched and re
   assert.equal(checkbox.checked, true, 'declining must put the checkbox back to checked');
 });
 
-test('editing cost never touches paidAt, paid or unpaid — only the checkbox itself sets/clears it', () => {
+test('editing cost never touches paidAt, paid or unpaid — only the checkbox itself sets/clears it', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1322,7 +1386,7 @@ test('editing cost never touches paidAt, paid or unpaid — only the checkbox it
   assert.equal(saved[1].rows[1].paidAt, null, 'an unpaid row\'s cost edit is not a spend event');
 });
 
-test('directly editing a running-total field logs the delta, same convention "Add to Total" uses', () => {
+test('directly editing a running-total field logs the delta, same convention "Add to Total" uses', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1352,7 +1416,7 @@ test('directly editing a running-total field logs the delta, same convention "Ad
   assert.equal(saved[1].rows[0].log.length, 2, 'a no-op edit (same value) should not add a log entry');
 });
 
-test('"Add to Total" appends a log entry for the amount added', () => {
+test('"Add to Total" appends a log entry for the amount added', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1376,7 +1440,7 @@ test('"Add to Total" appends a log entry for the amount added', () => {
   assert.equal(saved[1].rows[0].log[0].description, undefined, 'no description field should be stored when the description input is left blank');
 });
 
-test('"Add to Total" stores an optional description on the log entry, capped at 15 characters, and shows it inline with the expense in the log', () => {
+test('"Add to Total" stores an optional description on the log entry, capped at 15 characters, and shows it inline with the expense in the log', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1402,7 +1466,7 @@ test('"Add to Total" stores an optional description on the log entry, capped at 
   assert.ok(logHtml.includes('Fuel'));
 });
 
-test('a direct edit to the running total field (not via Add to Total) logs a delta with no description', () => {
+test('a direct edit to the running total field (not via Add to Total) logs a delta with no description', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1425,7 +1489,7 @@ test('a direct edit to the running total field (not via Add to Total) logs a del
   assert.ok(!logHtml.includes('undefined') && !logHtml.includes(' — '), 'a description-less entry should render the expense name plainly, with no stray separator');
 });
 
-test('switching a row\'s mode clears its spend history (log and paidAt), regardless of direction', () => {
+test('switching a row\'s mode clears its spend history (log and paidAt), regardless of direction', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1453,7 +1517,7 @@ test('switching a row\'s mode clears its spend history (log and paidAt), regardl
   assert.equal(saved[1].rows[1].paid, false);
 });
 
-test('spending heatmap is hidden when nothing has been logged yet', () => {
+test('spending heatmap is hidden when nothing has been logged yet', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1467,7 +1531,7 @@ test('spending heatmap is hidden when nothing has been logged yet', () => {
   assert.equal(document.getElementById('heatmapContainer').innerHTML, '');
 });
 
-test('spending heatmap shows logged spend by day, and its category filter narrows both the heatmap and the expense log', () => {
+test('spending heatmap shows logged spend by day, and its category filter narrows both the heatmap and the expense log', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }), // July 2026
     budget_2026_6: JSON.stringify([
@@ -1499,7 +1563,7 @@ test('spending heatmap shows logged spend by day, and its category filter narrow
   assert.ok(!logHtml.includes('Milk'), 'the log should respect the heatmap\'s active category filter');
 });
 
-test('tapping a heatmap cell expands an inline day-summary panel listing every spend that day, and tapping it again collapses it', () => {
+test('tapping a heatmap cell expands an inline day-summary panel listing every spend that day, and tapping it again collapses it', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }), // July 2026
     budget_2026_6: JSON.stringify([
@@ -1542,7 +1606,7 @@ test('tapping a heatmap cell expands an inline day-summary panel listing every s
   assert.ok(heatmapHtml.includes('No spending logged this day.'));
 });
 
-test('switching month resets the heatmap category filter and the selected day', () => {
+test('switching month resets the heatmap category filter and the selected day', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
     budget_2026_6: JSON.stringify([
@@ -1572,7 +1636,7 @@ test('switching month resets the heatmap category filter and the selected day', 
   assert.ok(!heatmapHtml.includes('heatmap-day-summary'), 'a day selected in July should not carry over and be misread against August');
 });
 
-test('heatmap shows an August-budgeted row paid a few days early (e.g. rent) as a lead-in day, sourced from August\'s own data — not from a separate July store', () => {
+test('heatmap shows an August-budgeted row paid a few days early (e.g. rent) as a lead-in day, sourced from August\'s own data — not from a separate July store', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 7 }), // August 2026
     // July's own store has a genuinely-July expense on the 26th — this must
@@ -1603,7 +1667,7 @@ test('heatmap shows an August-budgeted row paid a few days early (e.g. rent) as 
   // a lead day with nothing logged shows an honest empty state, not backfilled/assumed spend
   assert.ok(heatmapHtml.includes('July 27 — no spend logged'));
   // July's own R999 Groceries entry must not leak in from its separate store
-  assert.ok(!heatmapHtml.includes('999') && !heatmapHtml.includes('July 26'));
+  assert.ok(!heatmapHtml.includes('999') && !heatmapHtml.includes('July 26 — R')); // July 26 itself still shows as a "no spend logged" lead day, so look for an amount on it
   // August's own day still renders as before
   assert.ok(heatmapHtml.includes(`August 3 — ${context.fmt(200)}`));
 
@@ -1621,7 +1685,7 @@ test('heatmap shows an August-budgeted row paid a few days early (e.g. rent) as 
   assert.ok(!julyHtml.includes('heatmap-cell prev-month'), 'July has no June data, so it shows no lead days of its own');
 });
 
-test('heatmap\'s lead days roll over the year boundary correctly (January looks back to December), still sourced from January\'s own data', () => {
+test('heatmap\'s lead days roll over the year boundary correctly (January looks back to December), still sourced from January\'s own data', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2027, month: 0 }), // January 2027
     // A leftover entry in December's own separate store must not leak onto
@@ -1645,10 +1709,10 @@ test('heatmap\'s lead days roll over the year boundary correctly (January looks 
   const heatmapHtml = document.getElementById('heatmapContainer').innerHTML;
   assert.ok(heatmapHtml.includes(`December 28 — ${context.fmt(150)}`));
   assert.ok(heatmapHtml.includes(`January 5 — ${context.fmt(90)}`));
-  assert.ok(!heatmapHtml.includes('777') && !heatmapHtml.includes('December 30'), 'December\'s own separate-store spend must not leak into January\'s lead days');
+  assert.ok(!heatmapHtml.includes('777') && !heatmapHtml.includes('December 30 — R'), 'December\'s own separate-store spend must not leak into January\'s lead days');
 });
 
-test('heatmap shows no lead days at all when this month\'s own data has nothing dated in the pay-cycle range', () => {
+test('heatmap shows no lead days at all when this month\'s own data has nothing dated in the pay-cycle range', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 7 }), // August 2026
     // July's own store has spend in the 25th-onward range, but it's not
@@ -1675,7 +1739,7 @@ test('heatmap shows no lead days at all when this month\'s own data has nothing 
   assert.ok(heatmapHtml.includes(`August 3 — ${context.fmt(200)}`), 'the current month itself renders as usual');
 });
 
-test('lead-day and current-month heat intensity share one scale, since it\'s all one month\'s own spend', () => {
+test('lead-day and current-month heat intensity share one scale, since it\'s all one month\'s own spend', async () => {
   const storage = createStorage({
     lastViewedMonth: JSON.stringify({ year: 2026, month: 7 }), // August 2026
     budget_2026_7: JSON.stringify([
@@ -1695,4 +1759,586 @@ test('lead-day and current-month heat intensity share one scale, since it\'s all
   // clamped up to the 0.18 floor so it's never fully invisible) — not against
   // a separate August-only max, which would read it as full intensity instead
   assert.ok(heatmapHtml.includes(`style="background:rgba(52,199,89,0.18)" title="August 3 — ${context.fmt(10)}"`));
+});
+
+test('the web app still registers the service worker and checks for updates', async () => {
+  const app = loadApp({ storage: createStorage({}), fetchVersionPayload: { version: RUNNING_VERSION } });
+  await flushMicrotasks();
+
+  assert.equal(app.getSwRegistrations(), 1);
+  assert.ok(app.getFetchCallCount() >= 1);
+});
+
+const BUDGET_STORE = () => createStorage({
+  lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+  budget_2026_6: JSON.stringify([
+    { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+    { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [{ expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+  ])
+});
+
+// ── v5.15: review fixes and polish ───────────────────────────────────────────
+const STYLE_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+const INDEX_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+
+const monthJson = (expense, cost = '10') => JSON.stringify([
+  { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+  { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [{ expense, cost, paid: false, mode: 'fully-paid', runningTotal: '' }] }
+]);
+
+// localStorage stand-in with a real size limit (keys + values, in characters),
+// for the cases where what matters is WHAT gets dropped when space runs out
+function createCappedStorage(initial, maxChars) {
+  const store = new Map(Object.entries(initial));
+  const used = () => Array.from(store).reduce((n, [k, v]) => n + k.length + v.length, 0);
+  return {
+    getItem(key) { return store.has(key) ? store.get(key) : null; },
+    setItem(key, value) {
+      const v = String(value);
+      const current = store.has(key) ? key.length + store.get(key).length : 0;
+      if (used() - current + key.length + v.length > maxChars) {
+        const err = new Error('Quota exceeded');
+        err.name = 'QuotaExceededError';
+        throw err;
+      }
+      store.set(key, v);
+    },
+    removeItem(key) { store.delete(key); },
+    key(index) { return Array.from(store.keys())[index] ?? null; },
+    get length() { return store.size; },
+    used
+  };
+}
+
+test('an open sheet or dialog locks the page behind it, and only unlocks once both are closed', async () => {
+  const { context, document, listeners } = loadApp({ storage: BUDGET_STORE() });
+  const root = document.documentElement.classList;
+  assert.equal(root.contains('popup-open'), false);
+
+  context.openMainMenu();
+  assert.equal(root.contains('popup-open'), true);
+  context.openCenterModal('<div>x</div>');
+  context.closeSheet();
+  assert.equal(root.contains('popup-open'), true, 'the dialog is still open');
+  context.closeCenterModal();
+  assert.equal(root.contains('popup-open'), false);
+
+  // The touchmove guard: closestMap says what target.closest() finds
+  const swipe = (closestMap) => {
+    let prevented = false;
+    listeners.touchmove.forEach(cb => cb({ target: { closest: sel => closestMap[sel] || null }, preventDefault() { prevented = true; } }));
+    return prevented;
+  };
+  assert.equal(swipe({}), false, 'nothing open: the page scrolls normally');
+  context.openExpenseLog();
+  assert.equal(swipe({}), true, 'a swipe on the dimmed overlay must not scroll the page');
+  assert.equal(swipe({ '.bottom-sheet, .center-modal': { scrollHeight: 300, clientHeight: 300 } }), true, 'a sheet with nothing to scroll');
+  assert.equal(swipe({ '.bottom-sheet, .center-modal': { scrollHeight: 900, clientHeight: 300 } }), false, 'a long sheet keeps its own scrolling');
+  assert.equal(swipe({ 'input, textarea, select': {} }), false, 'moving the cursor inside a text field is left alone');
+
+  assert.ok(/html\.popup-open,\s*html\.popup-open body\s*\{\s*overflow:\s*hidden/.test(STYLE_SOURCE));
+  const sheetRule = STYLE_SOURCE.slice(STYLE_SOURCE.indexOf('.bottom-sheet {'), STYLE_SOURCE.indexOf('.bottom-sheet.open'));
+  assert.ok(sheetRule.includes('overscroll-behavior: contain'), 'a scroll that reaches the end of the sheet must stop there');
+});
+
+test('the year picker lists every year that has saved data, so last year stays reachable after New Year', async () => {
+  const thisYear = new Date().getFullYear();
+  const lastYear = thisYear - 1;
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: lastYear, month: 11 }),
+    [`budget_${lastYear}_11`]: monthJson('December rent')
+  });
+  const { document } = loadApp({ storage });
+  const options = document.getElementById('yearSelect').innerHTML;
+  assert.ok(options.includes(`<option value="${lastYear}" selected>`), 'last year is listed and restored as the last-viewed year');
+  assert.ok(options.includes(`value="${thisYear}"`) && options.includes(`value="${thisYear + 4}"`));
+  assert.ok(document.getElementById('budgetContent').innerHTML.includes('December rent'));
+
+  // A past year with nothing saved is not offered, and is not restored either
+  const empty = loadApp({ storage: createStorage({ lastViewedMonth: JSON.stringify({ year: thisYear - 3, month: 2 }) }) });
+  const emptyOptions = empty.document.getElementById('yearSelect').innerHTML;
+  assert.ok(!emptyOptions.includes(`value="${thisYear - 3}"`));
+  assert.ok(emptyOptions.includes(`<option value="${thisYear}" selected>`));
+});
+
+test('an undo entry stores only the storage keys the action changed, not a copy of every month', async () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_5: monthJson('June item'),
+    budget_2026_6: monthJson('Milk'),
+    budget_2026_7: monthJson('August item')
+  });
+  const { context } = loadApp({ storage });
+  const before = storage.getItem('budget_2026_6');
+
+  context.updateRow(1, 0, 'cost', '25');
+
+  const stack = context.getUndoStack();
+  assert.equal(stack.length, 1);
+  assert.equal(stack[0].snapshot, undefined, 'no full snapshot is stored any more');
+  assert.deepEqual(Object.keys(stack[0].changes).sort(), ['budget_2026_6', 'protected_2026_6']);
+  assert.equal(stack[0].changes.budget_2026_6, before);
+  assert.equal(stack[0].changes.protected_2026_6, null, 'null = the key did not exist before the action');
+
+  context.undoLastAction();
+  assert.equal(storage.getItem('budget_2026_6'), before);
+  assert.equal(storage.getItem('protected_2026_6'), null, 'a key the action created is removed again');
+  assert.equal(storage.getItem('budget_2026_5'), monthJson('June item'), 'other months are never touched');
+
+  context.redoLastAction();
+  assert.equal(JSON.parse(storage.getItem('budget_2026_6'))[1].rows[0].cost, '25');
+  assert.equal(storage.getItem('protected_2026_6'), 'true');
+  assert.equal(context.getUndoStack().length, 1);
+});
+
+test('an edit that leaves the stored data unchanged records no undo entry', async () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: monthJson('Milk'),
+    protected_2026_6: 'true'
+  });
+  const { context } = loadApp({ storage });
+  // Re-save in the app's own format first, so the next save is byte-identical
+  context.updateRow(1, 0, 'cost', '11');
+  const depth = context.getUndoStack().length;
+  context.updateRow(1, 0, 'cost', '11');
+  assert.equal(context.getUndoStack().length, depth);
+});
+
+test('undo entries saved by earlier versions (full snapshots) can still be undone and redone', async () => {
+  const oldMonth = monthJson('Milk', '10');
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: monthJson('Milk', '99'),
+    protected_2026_6: 'true',
+    __undoStack: JSON.stringify([{ desc: 'Edited cost of "Milk" (July 2026)', snapshot: { budget_2026_6: oldMonth } }])
+  });
+  const { context, toasts } = loadApp({ storage });
+
+  context.undoLastAction();
+  assert.equal(storage.getItem('budget_2026_6'), oldMonth);
+  assert.equal(storage.getItem('protected_2026_6'), null, 'a key missing from the old snapshot is removed, as it always was');
+  assert.ok(toasts.some(t => t.startsWith('Undone: Edited cost of "Milk"')));
+
+  context.redoLastAction();
+  assert.equal(storage.getItem('budget_2026_6'), monthJson('Milk', '99'));
+  assert.equal(storage.getItem('protected_2026_6'), 'true');
+});
+
+test('when storage is nearly full, undo history is dropped before a budget edit is', async () => {
+  const initial = {
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: monthJson('Milk'),
+    protected_2026_6: 'true',
+    __undoStack: JSON.stringify([
+      { desc: 'old step 1', changes: { budget_2026_6: 'x'.repeat(1500) } },
+      { desc: 'old step 2', changes: { budget_2026_6: 'y'.repeat(1500) } }
+    ])
+  };
+  const size = Object.entries(initial).reduce((n, [k, v]) => n + k.length + v.length, 0);
+  const storage = createCappedStorage(initial, size + 5); // room for almost nothing more
+  const { context, toasts } = loadApp({ storage });
+
+  context.updateRow(1, 0, 'expense', 'A much longer name than the five spare characters allow');
+
+  assert.equal(JSON.parse(storage.getItem('budget_2026_6'))[1].rows[0].expense, 'A much longer name than the five spare characters allow');
+  assert.ok(!toasts.some(t => /Could not save your change/.test(t)), 'the edit itself must go through');
+  assert.ok(!context.getUndoStack().some(e => e.desc === 'old step 1'), 'the oldest undo step made way for it');
+});
+
+test('running totals are rounded to cents instead of showing float noise', async () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [{ expense: 'Coffee', cost: '100', paid: false, mode: 'running-total', runningTotal: '10.10', log: [] }] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+  assert.equal(context.roundMoney(10.1 + 20.2), 30.3);
+
+  context.openAddToTotalModal(1, 0);
+  document.getElementById('addToTotalInput').value = '20.20';
+  document.getElementById('addToTotalDescriptionInput').value = '';
+  context.submitAddToTotal(1, 0);
+  let row = JSON.parse(storage.getItem('budget_2026_6'))[1].rows[0];
+  assert.equal(row.runningTotal, '30.3', '10.10 + 20.20 used to be stored as 30.299999999999997');
+
+  context.updateRow(1, 0, 'runningTotal', '30.4');
+  row = JSON.parse(storage.getItem('budget_2026_6'))[1].rows[0];
+  assert.equal(row.log[row.log.length - 1].amount, 0.1, 'a direct edit logs a clean delta too');
+});
+
+test('Add to Total keeps the dialog open and says what is missing for an empty or zero amount', async () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [{ expense: 'Coffee', cost: '100', paid: false, mode: 'running-total', runningTotal: '5', log: [] }] }
+    ])
+  });
+  const { context, document } = loadApp({ storage });
+  const before = storage.getItem('budget_2026_6');
+  const amountInput = document.getElementById('addToTotalInput');
+  let focused = 0;
+  amountInput.focus = () => { focused++; };
+
+  context.openAddToTotalModal(1, 0);
+  assert.equal(focused, 1, 'the amount field is focused when the dialog opens');
+  assert.ok(!document.getElementById('centerModal').innerHTML.includes('autofocus'));
+
+  for (const value of ['', 'abc', '0']) {
+    amountInput.value = value;
+    context.submitAddToTotal(1, 0);
+    assert.ok(document.getElementById('centerModal').classList.contains('open'), `"${value}" must not close the dialog`);
+    assert.ok(/Enter an amount/.test(document.getElementById('addToTotalError').textContent));
+    assert.equal(storage.getItem('budget_2026_6'), before, `"${value}" must not be logged as a spend`);
+  }
+
+  amountInput.value = '12.5';
+  context.submitAddToTotal(1, 0);
+  assert.ok(!document.getElementById('centerModal').classList.contains('open'));
+  assert.equal(JSON.parse(storage.getItem('budget_2026_6'))[1].rows[0].runningTotal, '17.5');
+});
+
+test('importing a month file with the wrong contents is refused instead of blanking the month', async () => {
+  const storage = BUDGET_STORE();
+  const before = storage.getItem('budget_2026_6');
+  const app = loadApp({ storage });
+
+  for (const data of [{ not: 'a list' }, [], ['text'], 'text']) {
+    await importFile(app, 'month', JSON.stringify({ version: 1, type: 'month', data }));
+  }
+  assert.equal(storage.getItem('budget_2026_6'), before);
+  assert.equal(app.confirms.length, 0, 'an invalid file is rejected before any confirmation is asked');
+  assert.equal(app.toasts.filter(t => /not a valid single month template/.test(t)).length, 4);
+  assert.ok(!app.toasts.some(t => /Import complete/.test(t)));
+});
+
+test('an import that could not be saved is not reported as complete', async () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: monthJson('Milk')
+  }, { failKeys: new Set(['budget_2026_6', 'budget_2027_0']) });
+  const app = loadApp({ storage });
+
+  await importFile(app, 'month', JSON.stringify({ version: 1, type: 'month', data: JSON.parse(monthJson('Imported')) }));
+  assert.ok(app.toasts.some(t => /Could not save your change/.test(t)));
+  assert.ok(!app.toasts.some(t => /Import complete/.test(t)));
+
+  await importFile(app, 'history', JSON.stringify({ version: 1, type: 'history', entries: { budget_2027_0: JSON.parse(monthJson('Imported')) } }));
+  assert.ok(app.toasts.some(t => /^Import failed\./.test(t) && /could not be saved/.test(t)));
+  assert.ok(!app.toasts.some(t => /Import complete/.test(t)));
+});
+
+test('a history import skips malformed entries and says so', async () => {
+  const storage = BUDGET_STORE();
+  const app = loadApp({ storage });
+  const good = JSON.parse(monthJson('Imported'));
+  await importFile(app, 'history', JSON.stringify({ version: 1, type: 'history', entries: {
+    budget_2027_0: good,
+    budget_2027_1: 'garbage',
+    budget_2027_2: [],
+    budget_2027_99: good,
+    protected_2027_0: true,
+    protected_2027_1: 'yes'
+  } }));
+
+  assert.equal(storage.getItem('budget_2027_0'), JSON.stringify(good));
+  assert.equal(storage.getItem('protected_2027_0'), 'true');
+  for (const key of ['budget_2027_1', 'budget_2027_2', 'budget_2027_99', 'protected_2027_1']) {
+    assert.equal(storage.getItem(key), null, `${key} must not be imported`);
+  }
+  assert.ok(app.toasts.some(t => /Import complete\./.test(t) && /4 unrecognised entries/.test(t)));
+  assert.ok(app.document.getElementById('yearSelect').innerHTML.includes('value="2027"'));
+
+  await importFile(app, 'history', JSON.stringify({ version: 1, type: 'history', entries: { evil_key: 1 } }));
+  assert.ok(app.toasts.some(t => /nothing that can be imported/.test(t)));
+});
+
+test('a browser with no service worker support does not throw on return-to-app or on update', async () => {
+  const app = loadApp({ storage: createStorage({}), noServiceWorker: true });
+  await flushMicrotasks();
+  const fetchesBefore = app.getFetchCallCount();
+  assert.doesNotThrow(() => app.listeners.visibilitychange.forEach(cb => cb()));
+  assert.ok(app.getFetchCallCount() > fetchesBefore, 'the version check after the service-worker step still runs');
+  assert.doesNotThrow(() => app.context.reloadWithLatestServiceWorker(null));
+  assert.equal(app.reloads.length, 1);
+});
+
+test('a toast with an action offers one-tap Undo after removing a row', async () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Bread', cost: '5', paid: false, mode: 'fully-paid', runningTotal: '' }
+      ] }
+    ])
+  });
+  const { context, document, toasts } = loadApp({ storage });
+  const toast = document.getElementById('toast');
+  const action = document.getElementById('toastAction');
+
+  context.removeRow(1, 0);
+  assert.equal(JSON.parse(storage.getItem('budget_2026_6'))[1].rows.length, 1);
+  assert.equal(toasts[toasts.length - 1], 'Removed "Milk".');
+  assert.equal(action.textContent, 'Undo');
+  assert.equal(action.hidden, false);
+  assert.ok(toast.classList.contains('has-action'), 'only a toast with a button takes taps');
+
+  context.runToastAction();
+  assert.deepEqual(JSON.parse(storage.getItem('budget_2026_6'))[1].rows.map(r => r.expense), ['Milk', 'Bread']);
+  assert.ok(toasts[toasts.length - 1].startsWith('Undone: Removed row "Milk"'));
+  assert.equal(action.hidden, true, 'a plain toast shows no button');
+  assert.ok(!toast.classList.contains('has-action'));
+
+  context.reorderRows(1, 0, 1);
+  assert.equal(toasts[toasts.length - 1], 'Moved "Milk".');
+  assert.equal(action.textContent, 'Undo');
+});
+
+test('iPhone and iPad get maximum-scale=1 so tapping a field does not zoom the page; other devices keep pinch-zoom', async () => {
+  const iphone = loadApp({ storage: createStorage({}), userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15' });
+  assert.ok(iphone.viewportMeta.content.includes('maximum-scale=1.0'));
+
+  const android = loadApp({ storage: createStorage({}), userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/140' });
+  assert.equal(android.viewportMeta.content, 'width=device-width, initial-scale=1.0');
+});
+
+test('askConfirm shows an in-app dialog and resolves on its buttons; closing it any other way counts as cancel', async () => {
+  const { context, document } = loadApp({ storage: BUDGET_STORE(), realDialogs: true });
+  const modal = document.getElementById('centerModal');
+
+  context.openMainMenu();
+  const yes = context.askConfirm('Really <do> it?', { title: 'Sure?', confirmLabel: 'Do it', destructive: true });
+  assert.ok(modal.classList.contains('open'));
+  assert.ok(!document.getElementById('bottomSheet').classList.contains('open'), 'the menu makes way for the dialog');
+  assert.ok(modal.innerHTML.includes('Really &lt;do&gt; it?') && modal.innerHTML.includes('Sure?') && modal.innerHTML.includes('Do it'));
+  assert.ok(modal.innerHTML.includes('primary destructive'));
+  context.settleDialog(true);
+  assert.equal(await yes, true);
+  assert.ok(!modal.classList.contains('open'));
+
+  const no = context.askConfirm('Again?');
+  context.settleDialog(false);
+  assert.equal(await no, false);
+
+  const dismissed = context.askConfirm('Again?');
+  context.closeOverlay(); // tap on the dimmed area (Escape and Android back end up in the same place)
+  assert.equal(await dismissed, false);
+
+  const replaced = context.askConfirm('First');
+  const second = context.askConfirm('Second');
+  assert.equal(await replaced, false, 'a dialog replaced by another one is cancelled, never left hanging');
+  context.settleDialog(true);
+  assert.equal(await second, true);
+});
+
+test('renaming a category uses the in-app text dialog, caps the length and refuses a duplicate name', async () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#FF6B6B', isIncome: false, rows: [{ expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Fuel', colour: '#5DADE2', isIncome: false, rows: [{ expense: 'Petrol', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' }] }
+    ])
+  });
+  const { context, document, toasts } = loadApp({ storage, realDialogs: true });
+  const names = () => JSON.parse(storage.getItem('budget_2026_6')).map(c => c.name);
+  const modal = document.getElementById('centerModal');
+  const input = document.getElementById('dialogInput');
+
+  let pending = context.sheetRename(1);
+  assert.ok(modal.innerHTML.includes('Rename category') && modal.innerHTML.includes('value="Food"') && modal.innerHTML.includes('maxlength="30"'));
+  input.value = '  Groceries and household things that go on and on  ';
+  context.settleDialog(true);
+  await pending;
+  assert.deepEqual(names(), ['Income', 'Groceries and household things', 'Fuel']);
+  assert.ok(names()[1].length <= 30);
+
+  pending = context.sheetRename(2);
+  input.value = 'groceries AND household things';
+  context.settleDialog(true);
+  await pending;
+  assert.deepEqual(names(), ['Income', 'Groceries and household things', 'Fuel'], 'same name in different capitals is still a duplicate');
+  assert.ok(toasts.some(t => /already a category called/.test(t)));
+
+  pending = context.sheetRename(2);
+  input.value = 'Transport';
+  context.settleDialog(false);
+  await pending;
+  assert.equal(names()[2], 'Fuel', 'Cancel changes nothing');
+
+  pending = context.addCategory();
+  input.value = 'fuel';
+  context.settleDialog(true);
+  await pending;
+  assert.equal(names().length, 3, 'a new category cannot reuse an existing name either');
+});
+
+test('deleting a category asks in-app first, then offers Undo', async () => {
+  const storage = BUDGET_STORE();
+  const { context, document, toasts } = loadApp({ storage, realDialogs: true });
+  const names = () => JSON.parse(storage.getItem('budget_2026_6')).map(c => c.name);
+
+  let pending = context.sheetDelete(1);
+  assert.ok(document.getElementById('centerModal').innerHTML.includes('Delete &quot;Food&quot; and all its rows?'));
+  context.settleDialog(false);
+  await pending;
+  assert.deepEqual(names(), ['Income', 'Food']);
+
+  pending = context.sheetDelete(1);
+  context.settleDialog(true);
+  await pending;
+  assert.deepEqual(names(), ['Income']);
+  assert.equal(toasts[toasts.length - 1], 'Deleted "Food".');
+  assert.equal(document.getElementById('toastAction').textContent, 'Undo');
+
+  context.runToastAction();
+  assert.deepEqual(names(), ['Income', 'Food']);
+});
+
+test('app.js never calls the browser\'s own confirm(), prompt() or alert()', async () => {
+  const code = APP_SOURCE.split(/\r?\n/).filter(line => !line.trim().startsWith('//')).join('\n');
+  assert.ok(!/(^|[^.\w])(confirm|prompt|alert)\(/.test(code));
+});
+
+test('menus use one line-icon set (no emoji), and the paid checkbox and colour dots are proper tap targets', async () => {
+  const storage = createStorage({
+    lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }),
+    budget_2026_6: JSON.stringify([
+      { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+      { name: 'Food', colour: '#A3CB38', isIncome: false, rows: [
+        { expense: 'Milk', cost: '10', paid: false, mode: 'fully-paid', runningTotal: '' },
+        { expense: 'Coffee', cost: '10', paid: false, mode: 'running-total', runningTotal: '2', log: [] }
+      ] }
+    ]),
+    protected_2026_6: 'true'
+  });
+  const { context, document } = loadApp({ storage });
+  const sheet = document.getElementById('bottomSheet');
+  const emoji = /[\u{1F300}-\u{1FAFF}➕⇄]/u;
+
+  for (const open of [() => context.openCategoryMenu(1), () => context.openRowMenu(1, 1), () => context.openRowMenu(1, 0), () => context.openMainMenu()]) {
+    open();
+    assert.ok(!emoji.test(sheet.innerHTML), 'no emoji icons in menus');
+    assert.ok(sheet.innerHTML.includes('<svg'));
+  }
+  const tabs = document.getElementById('monthTabs').innerHTML;
+  assert.ok(!emoji.test(tabs) && tabs.includes('tab-lock') && tabs.includes('(protected)'));
+  // The hidden "(protected)" label is absolutely positioned: its tab must be
+  // its containing block, or an off-screen tab widens the whole page
+  const tabRule = STYLE_SOURCE.slice(STYLE_SOURCE.indexOf('.month-tabs button {'), STYLE_SOURCE.indexOf('.tab-lock'));
+  assert.ok(tabRule.includes('position: relative'));
+
+  const page = document.getElementById('budgetContent').innerHTML;
+  assert.ok(/<label class="cell-paid cell-paid-tap">\s*<input type="checkbox"/.test(page), 'the whole cell toggles the checkbox');
+
+  context.sheetColour(1);
+  const swatches = sheet.innerHTML.match(/<button class="colour-swatch[^>]*>/g);
+  assert.equal(swatches.length, 16);
+  assert.ok(swatches.every(b => /aria-label="[A-Z][a-z ]+/.test(b)));
+  assert.ok(swatches[0].includes('selected') && swatches[0].includes('aria-label="Lime (current colour)"'));
+});
+
+test('every sheet has a grab handle and a title the dialog is labelled by; unavailable Undo/Redo are really disabled', async () => {
+  const { context, document } = loadApp({ storage: BUDGET_STORE() });
+  const sheet = document.getElementById('bottomSheet');
+  const sheets = [
+    () => context.openMainMenu(), () => context.openExportMenu(), () => context.openImportMenu(), () => context.openPermissionsMenu(),
+    () => context.openHelpMenu(), () => context.openUserManual(), () => context.openFAQ(), () => context.openCategoryMenu(1),
+    () => context.sheetColour(1), () => context.openRowMenu(1, 0), () => context.openExpenseLog()
+  ];
+  for (const open of sheets) {
+    open();
+    assert.equal((sheet.innerHTML.match(/class="sheet-handle"/g) || []).length, 1);
+    assert.equal((sheet.innerHTML.match(/id="sheetTitle"/g) || []).length, 1);
+    assert.ok(sheet.innerHTML.includes('aria-label="Back"'));
+  }
+
+  context.openMainMenu();
+  assert.equal((sheet.innerHTML.match(/class="sheet-option disabled" disabled/g) || []).length, 2, 'nothing to undo or redo yet');
+  context.updateRow(1, 0, 'cost', '25');
+  context.openMainMenu();
+  assert.equal((sheet.innerHTML.match(/class="sheet-option disabled" disabled/g) || []).length, 1, 'only Redo is unavailable now');
+
+  assert.ok(/id="bottomSheet"[^>]*aria-labelledby="sheetTitle"[^>]*tabindex="-1"/.test(INDEX_SOURCE));
+  assert.ok(/id="centerModal"[^>]*aria-labelledby="modalTitle"[^>]*tabindex="-1"/.test(INDEX_SOURCE));
+  assert.ok(!INDEX_SOURCE.includes('aria-label="BudgetApp menu"'));
+  assert.ok(INDEX_SOURCE.includes('id="toastText"') && INDEX_SOURCE.includes('id="toastAction"'));
+});
+
+test('swiping down on a sheet\'s handle or header closes it; a short drag or a press on the back button does not', async () => {
+  const { context, document, listeners } = loadApp({ storage: BUDGET_STORE() });
+  const sheet = document.getElementById('bottomSheet');
+  const grip = { closest: sel => sel === '.sheet-handle, .sheet-header' ? {} : null };
+  const backButton = { closest: sel => (sel === '.sheet-handle, .sheet-header' || sel === 'button') ? {} : null };
+  const fire = (type, event) => (listeners[type] || []).slice().forEach(cb => cb({ type, pointerId: 7, ...event }));
+
+  context.openMainMenu();
+  fire('pointerdown', { target: grip, clientY: 100 });
+  fire('pointermove', { clientY: 130 });
+  assert.equal(sheet.style.transform, 'translateY(30px)', 'the sheet follows the finger');
+  fire('pointerup', { clientY: 130 });
+  assert.ok(sheet.classList.contains('open'), '30px is not a dismissal');
+
+  fire('pointerdown', { target: grip, clientY: 100 });
+  fire('pointermove', { clientY: 60 });
+  assert.equal(sheet.style.transform, 'translateY(0px)', 'it cannot be dragged upwards');
+  fire('pointermove', { clientY: 260 });
+  fire('pointerup', { clientY: 260 });
+  assert.ok(!sheet.classList.contains('open'));
+  assert.equal((listeners.pointermove || []).length, 0, 'gesture listeners are removed afterwards');
+
+  context.openMainMenu();
+  fire('pointerdown', { target: backButton, clientY: 100 });
+  assert.equal((listeners.pointermove || []).length, 0, 'a press on the back button is a tap, not a swipe');
+  assert.ok(STYLE_SOURCE.includes('safe-area-inset-bottom'), 'the sheet keeps clear of the gesture bar');
+});
+
+test('light mode uses the darker status colours for text; dark mode switches back to the bright ones', async () => {
+  const dark = STYLE_SOURCE.slice(STYLE_SOURCE.indexOf('@media (prefers-color-scheme: dark)'));
+  const light = STYLE_SOURCE.slice(0, STYLE_SOURCE.indexOf('@media (prefers-color-scheme: dark)'));
+  assert.ok(/--text-positive:\s*#1f7a36/.test(light) && /--text-negative:\s*#d70015/.test(light) && /--text-accent:\s*#0066cc/.test(light));
+  assert.ok(/--text-positive:\s*#34c759/.test(dark) && /--text-negative:\s*#ff3b30/.test(dark) && /--text-accent:\s*#0a84ff/.test(dark));
+  assert.ok(/\.remaining\.negative\s*\{\s*color:\s*var\(--text-negative\)/.test(light));
+  assert.ok(/\.remaining\.positive\s*\{\s*color:\s*var\(--text-positive\)/.test(light));
+  // The summary bar is dark in both modes, so it keeps the bright shades
+  assert.ok(/\.summary-item \.value\.positive\s*\{\s*color:\s*#34c759/.test(light));
+});
+
+test('long category names are cut off in the header instead of pushing the total out', async () => {
+  const rule = STYLE_SOURCE.slice(STYLE_SOURCE.indexOf('.section-header-left span'), STYLE_SOURCE.indexOf('.section-header-right'));
+  assert.ok(rule.includes('text-overflow: ellipsis') && rule.includes('white-space: nowrap'));
+
+  const { context } = loadApp({ storage: BUDGET_STORE(), promptReturns: 'A'.repeat(80) });
+  await context.addCategory();
+  const saved = JSON.parse(context.localStorage.getItem('budget_2026_6'));
+  assert.equal(saved[saved.length - 1].name.length, 30);
+});
+
+test('the pie chart draws a full ring when one category holds all the expenses, and slices otherwise', async () => {
+  const month = (foodCost, fuelCost) => JSON.stringify([
+    { name: 'Income', colour: '#e5e5ea', isIncome: true, rows: [{ expense: 'Salary', cost: '100', paid: false, mode: 'fully-paid', runningTotal: '' }] },
+    { name: 'Food', colour: '#A3CB38', isIncome: false, rows: [{ expense: 'Milk', cost: foodCost, paid: false, mode: 'fully-paid', runningTotal: '' }] },
+    { name: 'Fuel', colour: '#5DADE2', isIncome: false, rows: [{ expense: 'Petrol', cost: fuelCost, paid: false, mode: 'fully-paid', runningTotal: '' }] }
+  ]);
+  const chartOf = (foodCost, fuelCost) => {
+    const { context } = loadApp({ storage: createStorage({ lastViewedMonth: JSON.stringify({ year: 2026, month: 6 }), budget_2026_6: month(foodCost, fuelCost) }) });
+    return context.renderChart(context.loadData(2026, 6));
+  };
+
+  // An arc from a point back to the same point renders as nothing in SVG
+  const single = chartOf('10', '');
+  assert.ok(single.includes('<circle cx="80" cy="80" r="45" fill="none" stroke="#A3CB38" stroke-width="30"/>'), 'one category at 100% is a stroked ring');
+  assert.ok(!single.includes('<path'), 'and no degenerate arc path');
+  assert.ok(single.includes('100.0%'));
+
+  const split = chartOf('10', '30');
+  assert.equal((split.match(/<path/g) || []).length, 2);
+  assert.ok(!split.includes('<circle'));
+
+  assert.equal(chartOf('', ''), '', 'no expenses yet: the chart stays hidden');
 });
